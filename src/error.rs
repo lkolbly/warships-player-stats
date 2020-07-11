@@ -6,13 +6,11 @@ pub enum Error {
     Http {
         #[from]
         err: reqwest::Error,
-        //backtrace: Backtrace,
     },
     #[error("Error parsing response")]
     Serde {
         #[from]
         err: serde_json::Error,
-        //backtrace: Backtrace,
     },
     #[error("Error parsing bincoded data")]
     Bincode {
@@ -35,5 +33,5 @@ pub enum Error {
     Utf8Error {
         #[from]
         err: std::str::Utf8Error,
-    }
+    },
 }

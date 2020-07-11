@@ -1,4 +1,4 @@
-use std::time::{Instant, self};
+use std::time::Instant;
 
 pub struct ProgressLogger {
     tagline: String,
@@ -37,14 +37,33 @@ impl ProgressLogger {
             let rate = self.item_count as f64 / elapsed;
             match self.target {
                 Some(target) => {
-                    let remaining = if target < self.total { 0 } else { target - self.total };
-                    println!("{}: {}/{} items. {} in {:.2}s = {:.2} items/sec ETA {:.0}s", self.tagline, self.total, target, self.item_count, elapsed, rate, remaining as f64 / rate);
-                },
+                    let remaining = if target < self.total {
+                        0
+                    } else {
+                        target - self.total
+                    };
+                    println!(
+                        "{}: {}/{} items. {} in {:.2}s = {:.2} items/sec ETA {:.0}s",
+                        self.tagline,
+                        self.total,
+                        target,
+                        self.item_count,
+                        elapsed,
+                        rate,
+                        remaining as f64 / rate
+                    );
+                }
                 None => {
-                    println!("{}: {} items in {}s = {:.2} items/sec (total: {})", self.tagline, self.item_count, elapsed, self.item_count as f64 / elapsed, self.total);
+                    println!(
+                        "{}: {} items in {}s = {:.2} items/sec (total: {})",
+                        self.tagline,
+                        self.item_count,
+                        elapsed,
+                        self.item_count as f64 / elapsed,
+                        self.total
+                    );
                 }
             }
-            //self.total += self.item_count;
             self.last_report_time = Instant::now();
             self.item_count = 0;
         }

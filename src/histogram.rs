@@ -1,5 +1,3 @@
-
-
 #[derive(Clone)]
 pub struct Histogram {
     underlying: histogram::Histogram,
@@ -16,7 +14,10 @@ impl Histogram {
             underlying: histogram::Histogram::configure()
                 .max_value(num_buckets)
                 .build()
-                .expect(&format!("Could not construct histogram with {} buckets of size {}", num_buckets, bucket_size)),
+                .expect(&format!(
+                    "Could not construct histogram with {} buckets of size {}",
+                    num_buckets, bucket_size
+                )),
             bucket_size: bucket_size,
             num_buckets: num_buckets,
             max: max,
@@ -24,13 +25,13 @@ impl Histogram {
     }
 
     pub fn increment(&mut self, value: f32) -> Result<(), &'static str> {
-        // Ignore errors to avoid "sample value too large" errors
+        // Ignore histogram errors to avoid "sample value too large" errors
         let bucket = (value as f64 / self.bucket_size).floor() as u64;
         if bucket >= self.num_buckets {
-            self.underlying.increment(self.num_buckets - 1);
+            let _ = self.underlying.increment(self.num_buckets - 1);
             return Ok(());
         }
-        self.underlying.increment(bucket);
+        let _ = self.underlying.increment(bucket);
         Ok(())
     }
 

@@ -1,85 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
-use futures::stream::StreamExt;
-use futures::future::FutureExt;
-use futures::stream::FuturesUnordered;
-use std::io::{Read};
-use tokio::fs::File;
-use tokio::prelude::*;
-use std::collections::HashMap;
-//use histogram::Histogram;
-use std::convert::TryInto;
-use std::convert::Infallible;
-use std::net::SocketAddr;
-//use hyper::{Body, Request, Response, Server};
-//use hyper::service::{make_service_fn, service_fn};
-use std::sync::{Arc, Mutex};
-use std::cell::Cell;
-use rocket::State;
-use rocket::http::RawStr;
-use std::io::BufReader;
-use itertools::*;
-use stream_throttle::ThrottledStream;
-use flate2::Compression;
-use flate2::read::{GzEncoder, GzDecoder};
-use std::time::Instant;
-use std::time;
 
-use crate::error::Error;
-use crate::wows_data::*;
-use crate::scraper::WowsClient;
 use crate::histogram::Histogram;
-use crate::progress_logger::ProgressLogger;
-
-/*struct ProgressLogger {
-    tagline: String,
-    last_report_time: Instant,
-    item_count: usize,
-    total: usize,
-    target: Option<usize>,
-}
-
-impl ProgressLogger {
-    pub fn new(tagline: &str) -> ProgressLogger {
-        ProgressLogger {
-            tagline: tagline.to_string(),
-            last_report_time: Instant::now(),
-            item_count: 0,
-            total: 0,
-            target: None,
-        }
-    }
-
-    pub fn new_with_target(tagline: &str, target: usize) -> ProgressLogger {
-        ProgressLogger {
-            tagline: tagline.to_string(),
-            last_report_time: Instant::now(),
-            item_count: 0,
-            total: 0,
-            target: Some(target),
-        }
-    }
-
-    pub fn increment(&mut self, count: usize) {
-        self.item_count += count;
-        self.total += count;
-        let elapsed = self.last_report_time.elapsed().as_secs_f64();
-        if elapsed > 60.0 {
-            let rate = self.item_count as f64 / elapsed;
-            match self.target {
-                Some(target) => {
-                    let remaining = if target < self.total { 0 } else { target - self.total };
-                    println!("{}: {}/{} items. {} in {:.2}s = {:.2} items/sec ETA {:.0}s", self.tagline, self.total, target, self.item_count, elapsed, rate, remaining as f64 / rate);
-                },
-                None => {
-                    println!("{}: {} items in {}s = {:.2} items/sec (total: {})", self.tagline, self.item_count, elapsed, self.item_count as f64 / elapsed, self.total);
-                }
-            }
-            //self.total += self.item_count;
-            self.last_report_time = Instant::now();
-            self.item_count = 0;
-        }
-    }
-}*/
+use crate::wows_data::*;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AveragedBatteryStats {
@@ -181,7 +103,10 @@ impl BatteryHistogram {
         Ok(())
     }
 
-    pub fn get_percentile(&self, value: &AveragedBatteryStats) -> Result<AveragedBatteryStats, &'static str> {
+    pub fn get_percentile(
+        &self,
+        value: &AveragedBatteryStats,
+    ) -> Result<AveragedBatteryStats, &'static str> {
         Ok(AveragedBatteryStats {
             frags: self.frags.get_percentile(value.frags.into())? as f32,
             hits: self.hits.get_percentile(value.hits.into())? as f32,
@@ -217,31 +142,51 @@ impl ShipStatsHistogram {
         self.torpedoes.increment(&value.torpedoes)?;
         self.ramming.increment(&value.ramming)?;
         self.winrate.increment(value.winrate.into())?;
-        self.win_survival_rate.increment(value.win_survival_rate.into())?;
+        self.win_survival_rate
+            .increment(value.win_survival_rate.into())?;
         self.damage_dealt.increment(value.damage_dealt.into())?;
         self.kills.increment(value.kills.into())?;
         self.planes_killed.increment(value.planes_killed.into())?;
-        self.points_captured.increment(value.points_captured.into())?;
+        self.points_captured
+            .increment(value.points_captured.into())?;
         self.spotted.increment(value.spotted.into())?;
-        self.damage_on_spotting.increment(value.damage_on_spotting.into())?;
+        self.damage_on_spotting
+            .increment(value.damage_on_spotting.into())?;
         Ok(())
     }
 
-    pub fn get_percentile(&self, value: &AveragedShipStats) -> Result<AveragedShipStats, &'static str> {
+    pub fn get_percentile(
+        &self,
+        value: &AveragedShipStats,
+    ) -> Result<AveragedShipStats, &'static str> {
         Ok(AveragedShipStats {
             xp: self.xp.get_percentile(value.xp.into())? as f32,
             main_battery: self.main_battery.get_percentile(&value.main_battery)?,
-            secondary_battery: self.secondary_battery.get_percentile(&value.secondary_battery)?,
+            secondary_battery: self
+                .secondary_battery
+                .get_percentile(&value.secondary_battery)?,
             torpedoes: self.torpedoes.get_percentile(&value.torpedoes)?,
             ramming: self.ramming.get_percentile(&value.ramming)?,
             winrate: self.winrate.get_percentile(value.winrate.into())? as f32,
-            win_survival_rate: self.win_survival_rate.get_percentile(value.win_survival_rate.into())? as f32,
-            damage_dealt: self.damage_dealt.get_percentile(value.damage_dealt.into())? as f32,
+            win_survival_rate: self
+                .win_survival_rate
+                .get_percentile(value.win_survival_rate.into())?
+                as f32,
+            damage_dealt: self
+                .damage_dealt
+                .get_percentile(value.damage_dealt.into())? as f32,
             kills: self.kills.get_percentile(value.kills.into())? as f32,
-            planes_killed: self.planes_killed.get_percentile(value.planes_killed.into())? as f32,
-            points_captured: self.points_captured.get_percentile(value.points_captured.into())? as f32,
+            planes_killed: self
+                .planes_killed
+                .get_percentile(value.planes_killed.into())? as f32,
+            points_captured: self
+                .points_captured
+                .get_percentile(value.points_captured.into())? as f32,
             spotted: self.spotted.get_percentile(value.spotted.into())? as f32,
-            damage_on_spotting: self.damage_on_spotting.get_percentile(value.damage_on_spotting.into())? as f32,
+            damage_on_spotting: self
+                .damage_on_spotting
+                .get_percentile(value.damage_on_spotting.into())?
+                as f32,
         })
     }
 }

@@ -42,7 +42,7 @@ pub struct ModuleInfo {
     pub next_ships: Option<Vec<u64>>,
     pub module_id: u64,
 
-    #[serde(rename="type")]
+    #[serde(rename = "type")]
     pub module_type: String,
 
     pub module_id_str: String,
@@ -66,7 +66,7 @@ pub struct ShipInfo {
     pub tier: u64,
     pub next_ships: HashMap<String, u64>,
     pub mod_slots: u64,
-    #[serde(rename="type")]
+    #[serde(rename = "type")]
     pub ship_type: String,
     pub is_special: bool,
     pub name: String,
@@ -134,18 +134,6 @@ pub struct DetailedStatTypes {
     pub battles: u64,
     pub ship_id: u64,
 }
-
-/*#[derive(Debug, Serialize, Deserialize)]
-struct DetailedStatsMeta {
-    count: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct DetailedStatsReply {
-    status: String,
-    meta: DetailedStatsMeta,
-    data: HashMap<String, Option<Vec<DetailedStatTypes>>>,
-}*/
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PlayerRecord {
