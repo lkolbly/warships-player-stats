@@ -68,7 +68,7 @@ impl Database {
             player_list: player_lookup,
             stats: ship_stats_hist,
             player_data: Arc::new(
-                sled::open("player_data.sled").expect("Unable to create sled database!"),
+                sled::Config::default().path("player_data.sled").cache_capacity(100_000_000).open().expect("Unable to create sled database!"),
             ),
         })
     }
@@ -345,18 +345,18 @@ async fn fetch_player_list(client: &WowsClient) -> HashMap<String, u64> {
                 let client = client.fork();
                 async_tasks.push(async move {
                     let s: String = letters.iter().map(|c| *c).collect();
-                    client.list_players(&s).await.map(|x| Some(x)).unwrap_or(None)
+                    client.list_players(&s).await
                 });
             }
             Some(players) = async_tasks.next() => {
                 //logger.increment(1);
                 match players {
-                    Some(mut v) => {
+                    Ok(mut v) => {
                         logger.increment(1);
                         player_list.append(&mut v);
                     }
-                    None => {
-                        println!("Something went wrong retrieving players!");
+                    Err(e) => {
+                        println!("Something went wrong retrieving players! err={:?}", e);
                     }
                 }
             }
