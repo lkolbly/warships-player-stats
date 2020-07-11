@@ -16,14 +16,14 @@ pub struct WowsClient {
 }
 
 impl WowsClient {
-    pub fn new(application_id: &str) -> WowsClient {
+    pub fn new(application_id: &str, request_period: u64) -> WowsClient {
         let client = reqwest::Client::new();
         WowsClient {
             application_id: application_id.to_string(),
             client: client,
             throttle_pool: ThrottlePool::new(ThrottleRate::new(
                 1,
-                std::time::Duration::new(0, 50_000_000),
+                std::time::Duration::new(0, request_period),
             )),
             logger: Arc::new(Mutex::new(ProgressLogger::new("api_requests"))),
         }

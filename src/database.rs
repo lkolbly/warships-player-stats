@@ -120,13 +120,13 @@ impl Database {
     }
 }
 
-pub async fn database_update_loop(api_key: &str, database: Arc<Mutex<Database>>) {
+pub async fn database_update_loop(api_key: &str, request_period: u64, database: Arc<Mutex<Database>>) {
     // Keep a few things updated:
     // - The list of players
     // - Each of those player's detailed stats
     // - The list of boats
     println!("Starting DB update loop...");
-    let client = WowsClient::new(api_key);
+    let client = WowsClient::new(api_key, request_period);
     loop {
         let start = Instant::now();
 

@@ -96,6 +96,40 @@ fn player_stats(username: &RawStr, database: State<Arc<Mutex<Database>>>) -> Str
     result
 }
 
+struct Config {
+    api_key: String,
+    request_period: u64,
+}
+
+impl Config {
+    fn from_map(settings: HashMap<String, String>) -> Config {
+        let api_key = settings.get("api_key").expect("Could not find 'api_key' in settings").to_string();
+        let request_rate: f64 = settings.get("api_request_rate").expect("Could not find 'api_request_rate' in settings").parse().expect("Could not parse api_request_rate as a float");
+        let request_period: u64 = (1_000_000_000.0 / request_rate) as u64;
+        Config {
+            api_key,
+            request_period,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use super::Config;
+
+    #[test]
+    fn config_parser_works() {
+        let mut settings = HashMap::new();
+        settings.insert("api_key".to_string(), "asdf".to_string());
+        settings.insert("api_request_rate".to_string(), "20".to_string());
+
+        let cfg = Config::from_map(settings);
+        assert_eq!(cfg.api_key, "asdf");
+        assert_eq!(cfg.request_period, 50_000_000);
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let mut settings = config::Config::default();
@@ -106,13 +140,7 @@ async fn main() -> Result<(), Error> {
         .unwrap();
 
     let settings: HashMap<String, String> = settings.try_into().unwrap();
-
-    println!("{:?}", settings);
-
-    let api_key = settings
-        .get("api_key")
-        .expect("Could not find 'api_key' in settings");
-    println!("{}", api_key);
+    let cfg = Config::from_map(settings);
 
     let player_list: Vec<PlayerRecord> = {
         let mut encoded_players = vec![];
@@ -142,7 +170,7 @@ async fn main() -> Result<(), Error> {
     }
 
     println!("Starting database update thread");
-    database_update_loop(api_key, database).await;
+    database_update_loop(cfg.api_key, cfg.request_period, database).await;
 
     Ok(())
 }
