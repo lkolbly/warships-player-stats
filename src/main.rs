@@ -25,7 +25,7 @@ use wows_data::*;
 
 #[get("/")]
 fn index() -> &'static str {
-    "Hello there, world!"
+    "Hello there! Go ahead and go to the URL /warshipstats/player/<your username> to see your stats."
 }
 
 #[get("/player/<username>")]
@@ -164,13 +164,13 @@ async fn main() -> Result<(), Error> {
         std::thread::spawn(|| {
             rocket::ignite()
                 .manage(database)
-                .mount("/", routes![index, player_stats])
+                .mount("/warshipstats", routes![index, player_stats])
                 .launch();
         });
     }
 
     println!("Starting database update thread");
-    database_update_loop(cfg.api_key, cfg.request_period, database).await;
+    database_update_loop(&cfg.api_key, cfg.request_period, database).await;
 
     Ok(())
 }

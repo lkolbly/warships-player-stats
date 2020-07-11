@@ -1,5 +1,6 @@
 use futures::future::FutureExt;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::sync::Arc;
 use std::sync::Mutex;
 use stream_throttle::{ThrottlePool, ThrottleRate};
@@ -23,7 +24,7 @@ impl WowsClient {
             client: client,
             throttle_pool: ThrottlePool::new(ThrottleRate::new(
                 1,
-                std::time::Duration::new(0, request_period),
+                std::time::Duration::new(0, request_period.try_into().unwrap()),
             )),
             logger: Arc::new(Mutex::new(ProgressLogger::new("api_requests"))),
         }
