@@ -116,6 +116,24 @@ impl WowsClient {
         Ok(reply.data)
     }
 
+    pub async fn get_module_info(
+        &self,
+        module_ids: &[u64],
+    ) -> Result<HashMap<u64, DetailedModuleInfo>, Error> {
+        let uri = "https://api.worldofwarships.com/wows/encyclopedia/modules/";
+        let module_ids: Vec<String> = module_ids.iter().map(|x| format!("{}", x)).collect();
+        //let s = format!("{}", module_id);
+        let module_ids = module_ids.join(",");
+        let params = [("module_id", module_ids.as_str())];
+        let reply: GenericReply<HashMap<String, DetailedModuleInfo>> =
+            self.request(uri, &params[..]).await?;
+        let mut result: HashMap<u64, DetailedModuleInfo> = HashMap::new();
+        for (k, v) in reply.data.iter() {
+            result.insert(k.parse::<u64>().unwrap(), v.clone());
+        }
+        Ok(result)
+    }
+
     pub async fn get_ship_info(&self, ship_id: u64) -> Result<ShipInfo, Error> {
         let uri = "https://api.worldofwarships.com/wows/encyclopedia/ships/";
         let s = format!("{}", ship_id);

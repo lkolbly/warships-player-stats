@@ -25,11 +25,69 @@ pub struct MobilityProfile {
     pub max_speed: f32,
 }
 
+/*
+                "torpedoes": {
+                    "visibility_dist": 1.3,
+                    "distance": 8.0,
+                    "torpedoes_id": 3763744720,
+                    "torpedo_name": "533 mm Mk\u00a0IX",
+                    "reload_time": 96,
+                    "torpedo_speed": 61,
+                    "rotation_time": 7.2,
+                    "torpedoes_id_str": "PBUT506",
+                    "slots": {
+                        "0": {
+                            "barrels": 4,
+                            "caliber": 533,
+                            "name": "533 mm QR Mk\u00a0IV",
+                            "guns": 2
+                        }
+                    },
+                    "max_damage": 15433
+                },
+*/
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TorpedoesProfile {
+    #[serde(rename = "torpedoes_id")]
+    pub id: u64,
+    #[serde(rename = "torpedo_name")]
+    pub name: String,
+    #[serde(rename = "distance")]
+    pub range: f32,
+    #[serde(rename = "torpedo_speed")]
+    pub speed: u64,
+    pub reload_time: u32,
+    pub max_damage: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DetailedModuleInfoTorpedoProfile {
+    pub torpedo_speed: u64,
+    pub shot_speed: f32,
+    pub max_damage: u64,
+    pub distance: f32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DetailedModuleInfoProfile {
+    pub torpedoes: Option<DetailedModuleInfoTorpedoProfile>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DetailedModuleInfo {
+    pub module_id: u64,
+    #[serde(rename = "type")]
+    pub module_type: String,
+    pub profile: DetailedModuleInfoProfile,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ShipProfile {
-    pub mobility: MobilityProfile,
-    pub battle_level_range_max: u16,
-    pub battle_level_range_min: u16,
+    pub mobility: Option<MobilityProfile>,
+    pub torpedoes: Option<TorpedoesProfile>,
+    pub battle_level_range_max: Option<u16>,
+    pub battle_level_range_min: Option<u16>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -40,6 +98,7 @@ pub struct ModuleInfo {
     pub price_xp: u64,
     pub price_credit: u64,
     pub next_ships: Option<Vec<u64>>,
+    pub next_modules: Option<Vec<u64>>,
     pub module_id: u64,
 
     #[serde(rename = "type")]
