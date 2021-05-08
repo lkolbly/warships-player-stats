@@ -245,10 +245,20 @@ async fn main() -> Result<(), Error> {
 
     // Generate cheatsheet
     let gameparams: GameParams = {
-        let data = std::include_bytes!("../GameParams.json");
-        GameParams::load(data)?
+        //let data = std::include_bytes!("../GameParams.json");
+        //GameParams::load(&GAME_PARAMS)?
+        let mut data = vec![];
+        File::open("GameParams.json")
+            .await
+            .expect("Could not open required GameParams.json file")
+            .read_to_end(&mut data)
+            .await?;
+        GameParams::load(&data)?
+        //let mut data = std::include_bytes!("../GameParams.data");
+        //GameParams::load_raw(&data[..]).unwrap()
     };
 
+    println!("Loading ships...");
     let ships = load_or_do("ships.dat", true, || async {
         client.enumerate_ships().await
     })
@@ -278,15 +288,40 @@ async fn main() -> Result<(), Error> {
     })
     .await?;
 
+    println!("Creating cheatsheet DB...");
     let cheatsheetdb = load_or_do("cheatsheet.dat", true, || async {
-        crate::cheatsheet::CheatsheetDb::from(&ships, &gameparams, &modules)
+        Ok(crate::cheatsheet::CheatsheetDb::from(
+            &ships,
+            &gameparams,
+            &modules,
+        ))
     })
     .await?;
 
-    rocket::ignite()
-        .manage(cheatsheetdb)
-        .mount("/warshipstats", routes![index, cheatsheet])
-        .launch();
+    /*rocket::ignite()
+    .manage(cheatsheetdb)
+    .mount("/warshipstats", routes![index, cheatsheet])
+    .launch();*/
+
+    println!("Enumerating playerlist...");
+    let player_list = load_or_do("playerlist.dat", true, || async {
+        /*let chars = vec![
+            'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q',
+            'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+        ];
+        let mut players = vec![];
+        for chars in (0u8..3).map(|_| chars.clone()).multi_cartesian_product() {
+            //println!("{:?}", chars);
+            let chars: Vec<_> = chars.iter().map(|c| format!("{}", c)).collect();
+            let chars: String = (&chars[..]).join("");
+            //println!("{}", chars);
+            players.append(&mut client.list_players(&chars).await?);
+        }
+        Ok(players)*/
+        let (_, players) = crate::database::fetch_player_list(&client).await;
+        Ok(players)
+    })
+    .await?;
 
     /*let player_list: Vec<PlayerRecord> = {
         let mut encoded_players = vec![];
@@ -295,7 +330,7 @@ async fn main() -> Result<(), Error> {
             .read_to_end(&mut encoded_players)
             .await?;
         bincode::deserialize(&encoded_players)?
-    };
+    };*/
     println!("Found {} players!", player_list.len());
 
     let mut player_lookup = HashMap::new();
@@ -303,20 +338,34 @@ async fn main() -> Result<(), Error> {
         player_lookup.insert(player.nickname.to_lowercase(), player.account_id);
     }
 
-    let database = Arc::new(Mutex::new(Database::new().await.unwrap()));
+    println!("Downloading detailed stats");
+
+    match File::open("detailed_stats.bin").await {
+        Ok(_) => {
+            // Already created, skip
+        }
+        Err(_) => {
+            crate::database::init_player_data(&client, &player_lookup)
+                .await
+                .unwrap();
+        }
+    }
+
+    println!("Creating player stats DB...");
+    let database = Arc::new(Mutex::new(Database::new(ships, player_list).await.unwrap()));
 
     {
         let database = database.clone();
         std::thread::spawn(|| {
             rocket::ignite()
                 .manage(database)
-                .mount("/warshipstats", routes![index, player_stats])
+                .mount("/warshipstats", routes![index, player_stats, cheatsheet])
                 .launch();
         });
     }
 
     println!("Starting database update thread");
-    database_update_loop(&cfg.api_key, cfg.request_period, database).await;*/
+    database_update_loop(&cfg.api_key, cfg.request_period, database).await;
 
     Ok(())
 }

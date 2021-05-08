@@ -10,11 +10,19 @@ pub struct GenericReplyMeta {
     pub page: Option<u64>,
 }
 
+//{"status":"error","error":{"code":504,"message":"SOURCE_NOT_AVAILABLE","field":null,"value":null}}
+#[derive(Debug, Deserialize)]
+pub struct GenericReplyError {
+    pub code: u32,
+    pub message: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct GenericReply<T> {
     pub status: String,
-    pub meta: GenericReplyMeta,
-    pub data: T,
+    pub meta: Option<GenericReplyMeta>,
+    pub error: Option<GenericReplyError>,
+    pub data: Option<T>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

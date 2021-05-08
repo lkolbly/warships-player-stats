@@ -4,8 +4,29 @@ use thiserror::Error;
 pub enum Error {
     #[error("Error retrieving page")]
     Http {
-        #[from]
         err: reqwest::Error,
+        url: String,
+        params: Vec<(String, String)>,
+    },
+    #[error("Error parsing HTTP response")]
+    HttpParse {
+        err: serde_json::Error,
+        url: String,
+        params: Vec<(String, String)>,
+    },
+    #[error("API error")]
+    ApiError {
+        err: u32,
+        url: String,
+        params: Vec<(String, String)>,
+    },
+    #[error("Empty detailed stats")]
+    DetailedStats {
+        url: String,
+        params: Vec<(String, String)>,
+        status: String,
+        meta: Option<crate::wows_data::GenericReplyMeta>,
+        error: Option<crate::wows_data::GenericReplyError>,
     },
     #[error("Error parsing response")]
     Serde {

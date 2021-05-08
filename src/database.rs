@@ -43,8 +43,11 @@ impl Database {
         Ok(body)
     }
 
-    pub async fn new() -> Result<Database, Error> {
-        let ships: HashMap<u64, ShipInfo> = {
+    pub async fn new(
+        ships: HashMap<u64, ShipInfo>,
+        player_list: Vec<PlayerRecord>,
+    ) -> Result<Database, Error> {
+        /*let ships: HashMap<u64, ShipInfo> = {
             let mut f = File::open("ships.bin").await?;
             let mut v = vec![];
             f.read_to_end(&mut v).await?;
@@ -57,7 +60,7 @@ impl Database {
                 .read_to_end(&mut encoded_players)
                 .await?;
             bincode::deserialize(&encoded_players)?
-        };
+        };*/
         let mut player_lookup = HashMap::new();
         for player in player_list.iter() {
             player_lookup.insert(player.nickname.to_lowercase(), player.account_id);
@@ -68,7 +71,11 @@ impl Database {
             player_list: player_lookup,
             stats: ship_stats_hist,
             player_data: Arc::new(
-                sled::Config::default().path("player_data.sled").cache_capacity(100_000_000).open().expect("Unable to create sled database!"),
+                sled::Config::default()
+                    .path("player_data.sled")
+                    .cache_capacity(100_000_000)
+                    .open()
+                    .expect("Unable to create sled database!"),
             ),
         })
     }
@@ -120,7 +127,11 @@ impl Database {
     }
 }
 
-pub async fn database_update_loop(api_key: &str, request_period: u64, database: Arc<Mutex<Database>>) {
+pub async fn database_update_loop(
+    api_key: &str,
+    request_period: u64,
+    database: Arc<Mutex<Database>>,
+) {
     // Keep a few things updated:
     // - The list of players
     // - Each of those player's detailed stats
@@ -146,7 +157,7 @@ pub async fn database_update_loop(api_key: &str, request_period: u64, database: 
 
 async fn update(client: &WowsClient, database: Arc<Mutex<Database>>) -> Result<(), Error> {
     // Refresh the player list
-    let new_player_list = fetch_player_list(&client).await;
+    let (new_player_list, _) = fetch_player_list(&client).await;
     let mut player_list = {
         let database = database.lock().unwrap();
         database.player_list.clone()
@@ -264,6 +275,51 @@ async fn calculate_aggregate_stats(
 }
 
 /// Due to the size of this dataset, we write it out to a file
+pub async fn init_player_data(
+    client: &WowsClient,
+    player_list: &HashMap<String, u64>,
+) -> Result<(), Error> {
+    println!("init_player_data({} players) called", player_list.len());
+    let mut async_tasks = FuturesUnordered::new();
+    let mut player_stream =
+        futures::stream::iter(player_list.iter().map(|(_name, account_id)| account_id)).fuse();
+    let mut f = File::create("detailed_stats.bin.new").await?;
+    let mut logger = ProgressLogger::new_with_target("fetch_player_data", player_list.len());
+    loop {
+        tokio::select! {
+            Some(account_id) = player_stream.next(), if async_tasks.len() < 100 => {
+                let client = client.fork();
+                async_tasks.push(async move {
+                    (
+                        account_id,
+                        client.get_detailed_stats(*account_id).await,
+                    )
+                });
+            }
+            Some(stats) = async_tasks.next(), if async_tasks.len() > 0 => {
+                match stats {
+                    (account_id, Ok(stats)) => {
+                        logger.increment(1);
+
+                        let serialized = bincode::serialize(&stats)?;
+                        let length: u32 = serialized.len().try_into().unwrap();
+                        f.write_all(&length.to_le_bytes()).await?;
+                        f.write_all(&serialized).await?;
+                    }
+                    (account_id, Err(e)) => {
+                        println!("Something went wrong retrieving player {}! Error: {:?}", account_id, e);
+                    }
+                }
+            }
+            else => break,
+        }
+    }
+    std::fs::rename("detailed_stats.bin.new", "detailed_stats.bin")
+        .expect("Could not move detailed_stats file!");
+    Ok(())
+}
+
+/// Due to the size of this dataset, we write it out to a file
 async fn fetch_player_data(
     client: &WowsClient,
     player_list: &HashMap<String, u64>,
@@ -326,7 +382,7 @@ async fn fetch_player_data(
     Ok(())
 }
 
-async fn fetch_player_list(client: &WowsClient) -> HashMap<String, u64> {
+pub async fn fetch_player_list(client: &WowsClient) -> (HashMap<String, u64>, Vec<PlayerRecord>) {
     println!("fetch_player_list() called");
 
     let alphabet = [
@@ -369,5 +425,5 @@ async fn fetch_player_list(client: &WowsClient) -> HashMap<String, u64> {
     for player in player_list.iter() {
         player_lookup.insert(player.nickname.to_lowercase(), player.account_id);
     }
-    player_lookup
+    (player_lookup, player_list)
 }

@@ -59,7 +59,15 @@ impl WowsClient {
                     .text()
                     .await
             })
-            .await?;
+            .await
+            .map_err(|e| Error::Http {
+                err: e,
+                url: uri.to_string(),
+                params: params
+                    .iter()
+                    .map(|(a, b)| (a.to_string(), b.to_string()))
+                    .collect(),
+            })?;
         match serde_json::from_str(&body) {
             Ok(x) => {
                 {
@@ -68,15 +76,51 @@ impl WowsClient {
                 }
                 Ok(x)
             }
-            Err(e) => Err(Error::from(e)),
+            Err(e) => {
+                // It's possible we may need to parse it as an error
+                /*
+                {"status":"error","error":{"code":504,"message":"SOURCE_NOT_AVAILABLE","field":null,"value":null}}
+                */
+                // and then retry or return that error or something
+                Err(Error::HttpParse {
+                    err: e,
+                    url: uri.to_string(),
+                    params: params
+                        .iter()
+                        .map(|(a, b)| (a.to_string(), b.to_string()))
+                        .collect(),
+                })
+            }
         }
     }
 
     async fn list_players_helper(&self, search: &str) -> Result<Vec<PlayerRecord>, Error> {
         let uri = "https://api.worldofwarships.com/wows/account/list/";
         let params = [("search", search)];
-        let reply: GenericReply<Vec<PlayerRecord>> = self.request(uri, &params).await?;
-        Ok(reply.data)
+        loop {
+            let reply: GenericReply<Vec<PlayerRecord>> = self.request(uri, &params).await?;
+            if let Some(data) = reply.data {
+                return Ok(data);
+            } else if reply
+                .error
+                .as_ref()
+                .expect("Didn't get data, but expected error")
+                .code
+                != 504
+            {
+                return Err(Error::ApiError {
+                    err: reply
+                        .error
+                        .expect("Didn't get data, but expected error")
+                        .code,
+                    url: uri.to_string(),
+                    params: params
+                        .iter()
+                        .map(|(a, b)| (a.to_string(), b.to_string()))
+                        .collect(),
+                });
+            }
+        }
     }
 
     pub async fn list_players(&self, search: &str) -> Result<Vec<PlayerRecord>, Error> {
@@ -113,7 +157,19 @@ impl WowsClient {
         let params = [("account_id", s.as_str())];
         let reply: GenericReply<HashMap<String, Option<Vec<DetailedStatTypes>>>> =
             self.request(uri, &params[..]).await?;
-        Ok(reply.data)
+        match reply.data {
+            Some(data) => Ok(data),
+            None => Err(Error::DetailedStats {
+                url: uri.to_string(),
+                params: params
+                    .iter()
+                    .map(|(a, b)| (a.to_string(), b.to_string()))
+                    .collect(),
+                status: reply.status,
+                meta: reply.meta,
+                error: reply.error,
+            }),
+        }
     }
 
     pub async fn get_module_info(
@@ -122,13 +178,12 @@ impl WowsClient {
     ) -> Result<HashMap<u64, DetailedModuleInfo>, Error> {
         let uri = "https://api.worldofwarships.com/wows/encyclopedia/modules/";
         let module_ids: Vec<String> = module_ids.iter().map(|x| format!("{}", x)).collect();
-        //let s = format!("{}", module_id);
         let module_ids = module_ids.join(",");
         let params = [("module_id", module_ids.as_str())];
         let reply: GenericReply<HashMap<String, DetailedModuleInfo>> =
             self.request(uri, &params[..]).await?;
         let mut result: HashMap<u64, DetailedModuleInfo> = HashMap::new();
-        for (k, v) in reply.data.iter() {
+        for (k, v) in reply.data.expect("Expected data for module info").iter() {
             result.insert(k.parse::<u64>().unwrap(), v.clone());
         }
         Ok(result)
@@ -139,7 +194,7 @@ impl WowsClient {
         let s = format!("{}", ship_id);
         let params = [("ship_id", s.as_str())];
         let reply: GenericReply<ShipInfo> = self.request(uri, &params[..]).await?;
-        Ok(reply.data)
+        Ok(reply.data.expect("Expected data for get_ship_info"))
     }
 
     pub async fn enumerate_ships(&self) -> Result<HashMap<u64, ShipInfo>, Error> {
@@ -148,7 +203,11 @@ impl WowsClient {
         let params = [("page_no", "1")];
         let reply: GenericReply<HashMap<String, Option<ShipInfo>>> =
             self.request(uri, &params[..]).await?;
-        for (k, v) in reply.data.iter() {
+        for (k, v) in reply
+            .data
+            .expect("Expected data for enumerate_ships")
+            .iter()
+        {
             match v {
                 Some(v) => {
                     result.insert(k.parse().unwrap(), v.clone());
@@ -156,12 +215,18 @@ impl WowsClient {
                 None => {}
             }
         }
-        for page in 2..reply.meta.page_total.unwrap() + 1 {
+        for page in 2..reply
+            .meta
+            .expect("Expected meta for enumerate_ships")
+            .page_total
+            .unwrap()
+            + 1
+        {
             let page = format!("{}", page);
             let params = [("page_no", page.as_str())];
             let reply: GenericReply<HashMap<String, Option<ShipInfo>>> =
                 self.request(uri, &params[..]).await?;
-            for (k, v) in reply.data.iter() {
+            for (k, v) in reply.data.expect("Expected data for reply data").iter() {
                 match v {
                     Some(v) => {
                         result.insert(k.parse().unwrap(), v.clone());
