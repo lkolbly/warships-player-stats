@@ -3,6 +3,7 @@ use flate2::Compression;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamExt;
 use itertools::*;
+use mongodb::bson::doc;
 use rusoto_s3::S3;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -439,7 +440,11 @@ pub struct DetailedStatRecord {
     pub retrieved: chrono::DateTime<chrono::Utc>,
 }
 
-pub async fn poller(client: &WowsClient, database: mongodb::Database) {
+pub async fn poller(
+    client: &WowsClient,
+    database: mongodb::Database,
+    histograms: Arc<Mutex<StatsHistogram>>,
+) {
     let (alphabet_sender, alphabet_receiver) = async_channel::bounded(256);
 
     let x = tokio::spawn(async move {
@@ -466,6 +471,14 @@ pub async fn poller(client: &WowsClient, database: mongodb::Database) {
             while let Ok(prefix) = alphabet_receiver.recv().await {
                 match client.list_players(&prefix).await {
                     Ok(players) => {
+                        let players: Vec<PlayerRecord> = players
+                            .iter()
+                            .map(|player| PlayerRecord {
+                                nickname: player.nickname.to_lowercase(),
+                                account_id: player.account_id,
+                            })
+                            .collect();
+
                         let collection = database.collection::<PlayerRecord>("playerids");
                         collection.insert_many(players.clone(), None).await.unwrap();
 
@@ -487,6 +500,7 @@ pub async fn poller(client: &WowsClient, database: mongodb::Database) {
         let player_receiver = player_receiver.clone();
         let client = client.fork();
         let database = database.clone();
+        let histograms = histograms.clone();
         tokio::spawn(async move {
             while let Ok(players) = player_receiver.recv().await {
                 println!("Got {} players!", players.len());
@@ -510,8 +524,24 @@ pub async fn poller(client: &WowsClient, database: mongodb::Database) {
                                                 })
                                                 .collect();
 
+                                            // Update the histograms
+                                            stats.iter().for_each(|stat| {
+                                                let mut histograms = histograms.lock().unwrap();
+                                                histograms.increment(stat.ship_id, &stat.pvp);
+                                            });
+
                                             let collection = database
                                                 .collection::<DetailedStatRecord>("playerstats");
+
+                                            // TODO: This is a race condition, if a query for this account comes in between
+                                            // the delete and the insert
+                                            collection
+                                                .delete_many(
+                                                    doc! {"account_id": player.account_id as i64},
+                                                    None,
+                                                )
+                                                .await
+                                                .unwrap();
                                             collection.insert_many(stats, None).await.unwrap();
                                         }
                                         None => {}

@@ -112,6 +112,8 @@ impl RunningHistogram {
     }
 
     pub fn update_db_size(&mut self, db_size: u64) {
-        self.database_size = db_size;
+        if db_size > 100_000 {
+            self.database_size = db_size;
+        }
     }
 }

@@ -153,14 +153,14 @@ pub struct BatteryStats {
 }
 
 impl BatteryStats {
-    pub fn into_map(&self, m: &mut HashMap<String, f64>, prefix: &str) {
+    pub fn into_map(&self, m: &mut HashMap<String, f64>, prefix: &str, nbattles: f64) {
         m.insert(
             format!("{}.max_frags_battle", prefix),
             self.max_frags_battle as f64,
         );
-        m.insert(format!("{}.frags", prefix), self.frags as f64);
-        m.insert(format!("{}.hits", prefix), self.hits as f64);
-        m.insert(format!("{}.shots", prefix), self.shots as f64);
+        m.insert(format!("{}.frags", prefix), self.frags as f64 / nbattles);
+        m.insert(format!("{}.hits", prefix), self.hits as f64 / nbattles);
+        m.insert(format!("{}.shots", prefix), self.shots as f64 / nbattles);
     }
 }
 
@@ -206,12 +206,15 @@ pub struct DetailedStats {
 
 impl DetailedStats {
     pub fn into_map(&self) -> HashMap<String, f64> {
+        let nbattles = self.battles as f64;
+
         let mut m = HashMap::new();
-        self.main_battery.into_map(&mut m, "main_battery");
-        self.second_battery.into_map(&mut m, "second_battery");
-        self.ramming.into_map(&mut m, "ramming");
-        self.torpedoes.into_map(&mut m, "torpedoes");
-        self.aircraft.into_map(&mut m, "aircraft");
+        self.main_battery.into_map(&mut m, "main_battery", nbattles);
+        self.second_battery
+            .into_map(&mut m, "second_battery", nbattles);
+        self.ramming.into_map(&mut m, "ramming", nbattles);
+        self.torpedoes.into_map(&mut m, "torpedoes", nbattles);
+        self.aircraft.into_map(&mut m, "aircraft", nbattles);
         m.insert("max_xp".to_owned(), self.max_xp as f64);
         m.insert(
             "damage_to_buildings".to_owned(),
@@ -226,12 +229,15 @@ impl DetailedStats {
             self.max_damage_scouting as f64,
         );
         m.insert("art_agro".to_owned(), self.art_agro as f64);
-        m.insert("ships_spotted".to_owned(), self.ships_spotted as f64);
-        m.insert("xp".to_owned(), self.xp as f64);
+        m.insert(
+            "ships_spotted".to_owned(),
+            self.ships_spotted as f64 / nbattles,
+        );
+        m.insert("xp".to_owned(), self.xp as f64 / nbattles);
         m.insert("survived_battles".to_owned(), self.survived_battles as f64);
         m.insert(
             "dropped_capture_points".to_owned(),
-            self.dropped_capture_points as f64,
+            self.dropped_capture_points as f64 / nbattles,
         );
         m.insert(
             "max_damage_dealt_to_buildings".to_owned(),
@@ -243,7 +249,10 @@ impl DetailedStats {
             "battles_since_510".to_owned(),
             self.battles_since_510 as f64,
         );
-        m.insert("planes_killed".to_owned(), self.planes_killed as f64);
+        m.insert(
+            "planes_killed".to_owned(),
+            self.planes_killed as f64 / nbattles,
+        );
         m.insert("battles".to_owned(), self.battles as f64);
         m.insert(
             "max_ships_spotted".to_owned(),
@@ -251,18 +260,30 @@ impl DetailedStats {
         );
         m.insert(
             "team_capture_points".to_owned(),
-            self.team_capture_points as f64,
+            self.team_capture_points as f64 / nbattles,
         );
-        m.insert("frags".to_owned(), self.frags as f64);
-        m.insert("damage_scouting".to_owned(), self.damage_scouting as f64);
+        m.insert("frags".to_owned(), self.frags as f64 / nbattles);
+        m.insert(
+            "damage_scouting".to_owned(),
+            self.damage_scouting as f64 / nbattles,
+        );
         m.insert("max_total_agro".to_owned(), self.max_total_agro as f64);
         m.insert("max_frags_battle".to_owned(), self.max_frags_battle as f64);
-        m.insert("capture_points".to_owned(), self.capture_points as f64);
-        m.insert("survived_wins".to_owned(), self.survived_wins as f64);
+        m.insert(
+            "capture_points".to_owned(),
+            self.capture_points as f64 / nbattles,
+        );
+        m.insert(
+            "survived_wins".to_owned(),
+            self.survived_wins as f64 / self.wins as f64,
+        );
         m.insert("max_damage_dealt".to_owned(), self.max_damage_dealt as f64);
-        m.insert("wins".to_owned(), self.wins as f64);
-        m.insert("losses".to_owned(), self.losses as f64);
-        m.insert("damage_dealt".to_owned(), self.damage_dealt as f64);
+        m.insert("wins".to_owned(), self.wins as f64 / nbattles);
+        m.insert("losses".to_owned(), self.losses as f64 / nbattles);
+        m.insert(
+            "damage_dealt".to_owned(),
+            self.damage_dealt as f64 / nbattles,
+        );
         m.insert(
             "max_planes_killed".to_owned(),
             self.max_planes_killed as f64,

@@ -23,14 +23,53 @@ impl AveragedStats {
 }
 
 pub struct StatsHistogram {
-    histograms: HashMap<String, RunningHistogram>,
+    ships: HashMap<u64, HashMap<String, RunningHistogram>>,
+    database_size: u64,
 }
 
 impl StatsHistogram {
     pub fn new() -> Self {
         Self {
-            histograms: HashMap::new(),
+            ships: HashMap::new(),
+            database_size: 100_000,
         }
+    }
+
+    pub fn set_database_size(&mut self, total_size: u64) {
+        self.database_size = total_size;
+        for (_, v) in self.ships.iter_mut() {
+            for (_, h) in v.iter_mut() {
+                h.update_db_size(total_size);
+            }
+        }
+    }
+
+    pub fn increment(&mut self, shipid: u64, stats: &DetailedStats) {
+        let stats = stats.into_map();
+        if !self.ships.contains_key(&shipid) {
+            self.ships.insert(shipid, HashMap::new());
+        }
+
+        let mut entry = self.ships.get_mut(&shipid).unwrap();
+        for (k, v) in stats.iter() {
+            if !entry.contains_key(k) {
+                let mut h = RunningHistogram::new();
+                h.update_db_size(self.database_size);
+                entry.insert(k.to_owned(), h);
+            }
+            entry.get_mut(k).unwrap().increment(*v);
+        }
+    }
+
+    pub fn get_percentiles(&self, shipid: u64, stats: &DetailedStats) -> HashMap<String, f64> {
+        let stats = stats.into_map();
+        let entry = self.ships.get(&shipid).unwrap();
+        let mut result = HashMap::new();
+        for (k, v) in stats.iter() {
+            let histogram = entry.get(k).unwrap();
+            result.insert(k.to_owned(), histogram.percentile(*v).unwrap_or(0.0));
+        }
+        result
     }
 }
 

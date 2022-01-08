@@ -1,6 +1,10 @@
 #![recursion_limit = "256"]
 #![feature(proc_macro_hygiene, decl_macro, future_readiness_fns)]
+use futures::TryStreamExt;
 use itertools::Itertools;
+#[macro_use]
+use log::*;
+use mongodb::bson::doc;
 use rocket::http::RawStr;
 use rocket::State;
 use rusoto_s3::S3;
@@ -13,8 +17,10 @@ use tera::{Context, Tera};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-#[macro_use]
-extern crate rocket;
+//#[macro_use]
+//extern crate rocket;
+
+use rocket::{get, routes};
 
 mod cheatsheet;
 mod database;
@@ -38,9 +44,10 @@ fn index() -> &'static str {
     "Hello there! Go ahead and go to the URL /warshipstats/player/<your username> to see your stats."
 }
 
+/*
 #[get("/cheatsheet/<tier>")]
 fn cheatsheet(tier: u16, database: State<CheatsheetDb>) -> rocket::response::content::Html<String> {
-    let mut tera = Tera::new("templates/*").unwrap();
+    let mut tera = Tera::new("templates/ *").unwrap();
     tera.add_raw_template(
         "cheatsheet.html",
         std::include_str!("../templates/cheatsheet.html"),
@@ -85,10 +92,28 @@ fn cheatsheet(tier: u16, database: State<CheatsheetDb>) -> rocket::response::con
         .unwrap(),
     )
 }
+*/
 
 #[get("/player/<username>")]
-fn player_stats(username: &RawStr, database: State<Arc<Mutex<Database>>>) -> String {
-    let database = database.lock().unwrap();
+async fn player_stats(
+    username: &str,
+    database: &State<mongodb::Database>,
+    histograms: &State<Arc<Mutex<StatsHistogram>>>,
+) -> String {
+    // Get the player's ID
+    let username = username.to_lowercase();
+    let collection = database.collection::<PlayerRecord>("playerids");
+    let filter = doc! { "nickname": username.clone() };
+    let record = collection.find_one(filter, None).await.unwrap().unwrap();
+
+    // Get the player's stats
+    let collection = database.collection::<DetailedStatRecord>("playerstats");
+    let filter = doc! { "account_id": record.account_id as i64 };
+    let mut cursor = collection.find(filter, None).await.unwrap();
+
+    //format!("{} {:?}", record.account_id, stats)
+
+    /*let database = database.lock().unwrap();
     //let pid: u64 = pid.parse().unwrap();
     let username = username.to_lowercase();
     let account_id = match database.get_user(&username) {
@@ -98,14 +123,24 @@ fn player_stats(username: &RawStr, database: State<Arc<Mutex<Database>>>) -> Str
         Some(account_id) => account_id,
     };
 
-    let player = database.get_detailed_stats(account_id).unwrap();
+    let player = database.get_detailed_stats(account_id).unwrap();*/
 
     let mut result = String::new();
-    result.push_str(&format!("Hello {}! account_id={}\n", username, account_id));
+    result.push_str(&format!(
+        "Hello {}! account_id={}\n",
+        username, record.account_id
+    ));
 
-    for ship_stats in player.iter() {
+    //for ship_stats in player.iter() {
+    while let Some(ship_stats) = cursor.try_next().await.unwrap() {
         let ship_id = ship_stats.ship_id;
-        let (ship, stats) = match database.get_ship_stats(ship_id) {
+
+        let histograms = histograms.lock().unwrap();
+        let percentiles = histograms.get_percentiles(ship_id, &ship_stats.pvp);
+
+        result.push_str(&format!("{:?}\n", percentiles));
+
+        /*let (ship, stats) = match database.get_ship_stats(ship_id) {
             Some(a) => a,
             _ => {
                 result.push_str(&format!("\nHm, couldn't find this ship ID={}!\n", ship_id));
@@ -149,7 +184,7 @@ fn player_stats(username: &RawStr, database: State<Arc<Mutex<Database>>>) -> Str
         result.push_str(&format!(
             " - XP: {:.0} (better than {:.1}% of players on this ship)\n",
             ship_stats.xp, percentiles.xp
-        ));
+        ));*/
     }
     result
 }
@@ -253,25 +288,61 @@ async fn main() -> Result<(), Error> {
     let db = storage_client.database("wows_player_stats");
 
     let collection = db.collection::<database::DetailedStatRecord>("playerstats");
-    if collection.count_documents(None, None).await.unwrap() == 0 {
+    let stats_count = collection.count_documents(None, None).await.unwrap();
+    info!("DB has {} player+ship entries already", stats_count);
+    if stats_count == 0 {
         let mut index = bson::Document::new();
         index.insert("account_id", 1u32);
-        collection.create_index(mongodb::IndexModel::builder().keys(index).build(), None);
+        collection
+            .create_index(mongodb::IndexModel::builder().keys(index).build(), None)
+            .await;
     }
 
     let collection = db.collection::<PlayerRecord>("playerids");
     if collection.count_documents(None, None).await.unwrap() == 0 {
         let mut index = bson::Document::new();
         index.insert("nickname", 1u32);
-        collection.create_index(mongodb::IndexModel::builder().keys(index).build(), None);
+        collection
+            .create_index(mongodb::IndexModel::builder().keys(index).build(), None)
+            .await;
     }
 
+    let mut histograms = StatsHistogram::new();
+    histograms.set_database_size(stats_count);
+
+    // Prime the histograms with all the current statistics
+    info!("Priming histogram with existing DB entries");
+    let collection = db.collection::<database::DetailedStatRecord>("playerstats");
+    let mut cursor = collection.find(None, None).await.unwrap();
+    while let Some(statrecord) = cursor.try_next().await.unwrap() {
+        histograms.increment(statrecord.ship_id, &statrecord.pvp);
+    }
+    let histograms = Arc::new(Mutex::new(histograms));
+
+    info!("Starting app");
     let client = crate::scraper::WowsClient::new(&cfg.api_key, cfg.request_period);
 
-    database::poller(&client, db).await;
+    {
+        let db = db.clone();
+        let histograms = histograms.clone();
+        tokio::spawn(async move {
+            database::poller(&client, db, histograms).await;
+        });
+    }
+
+    let database = db.clone();
+    rocket::build()
+        .manage(database)
+        .manage(histograms)
+        .mount(
+            "/warshipstats",
+            routes![index, player_stats /*, cheatsheet*/],
+        )
+        .launch()
+        .await;
 
     // Generate cheatsheet
-    let gameparams: GameParams = {
+    /*let gameparams: GameParams = {
         //let data = std::include_bytes!("../GameParams.json");
         //GameParams::load(&GAME_PARAMS)?
         let mut data = vec![];
@@ -392,7 +463,7 @@ async fn main() -> Result<(), Error> {
     }
 
     println!("Starting database update thread");
-    database_update_loop(&cfg.api_key, cfg.request_period, database).await;
+    database_update_loop(&cfg.api_key, cfg.request_period, database).await;*/
 
     Ok(())
 }
