@@ -56,3 +56,62 @@ impl Histogram {
         Ok(mid)
     }
 }
+
+/// Maintains a set of N histograms (N=10). Queries are returned based on the oldest histogram.
+/// All histograms are updated simultaneously. After a certain number of items are processed,
+/// the oldest histogram is removed and a new histogram is added.
+///
+/// The number of items between refreshes is total_items / N. total_items is, of course, not
+/// known in advance - therefore, it is periodically updated, according to the number of
+/// elements in the database. Initially it's set to 100,000.
+pub struct RunningHistogram {
+    histograms: Vec<Histogram>,
+    max_value: f64,
+    database_size: u64,
+    items_processed: u64,
+}
+
+impl RunningHistogram {
+    pub fn new() -> Self {
+        Self {
+            histograms: vec![],
+            max_value: 0.0,
+            database_size: 100_000,
+            items_processed: 0,
+        }
+    }
+
+    pub fn increment(&mut self, value: f64) {
+        self.items_processed += 1;
+        if value > self.max_value {
+            self.max_value = value;
+        }
+
+        let need_refresh =
+            self.items_processed > self.database_size / 10 || self.histograms.len() == 0;
+
+        if need_refresh {
+            if self.histograms.len() > 10 {
+                self.histograms.remove(0);
+            }
+            self.histograms.push(Histogram::new(self.max_value));
+            self.items_processed = 0;
+        }
+
+        for histogram in self.histograms.iter_mut() {
+            // TODO: Make the underlying accept f64
+            histogram.increment(value as f32);
+        }
+    }
+
+    pub fn percentile(&self, percentile: f64) -> Result<f64, &'static str> {
+        if self.histograms.len() == 0 {
+            return Ok(0.0);
+        }
+        self.histograms[0].percentile(percentile)
+    }
+
+    pub fn update_db_size(&mut self, db_size: u64) {
+        self.database_size = db_size;
+    }
+}

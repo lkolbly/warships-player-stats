@@ -1,7 +1,38 @@
 use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-use crate::histogram::Histogram;
+use crate::histogram::{Histogram, RunningHistogram};
 use crate::wows_data::*;
+
+pub struct AveragedStats {
+    stats: HashMap<String, f64>,
+    nbattles: f64,
+}
+
+impl AveragedStats {
+    pub fn new(stats: HashMap<String, f64>, nbattles: u64) -> Self {
+        Self {
+            stats,
+            nbattles: nbattles as f64,
+        }
+    }
+
+    pub fn get(&self, key: &str) -> f64 {
+        self.stats.get(key).unwrap_or(&0.0) / self.nbattles
+    }
+}
+
+pub struct StatsHistogram {
+    histograms: HashMap<String, RunningHistogram>,
+}
+
+impl StatsHistogram {
+    pub fn new() -> Self {
+        Self {
+            histograms: HashMap::new(),
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AveragedBatteryStats {

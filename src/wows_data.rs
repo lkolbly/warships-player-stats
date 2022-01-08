@@ -1,5 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::TryInto;
 
 #[derive(Debug, Deserialize)]
 pub struct GenericReplyMeta {
@@ -151,6 +152,18 @@ pub struct BatteryStats {
     pub shots: u32,
 }
 
+impl BatteryStats {
+    pub fn into_map(&self, m: &mut HashMap<String, f64>, prefix: &str) {
+        m.insert(
+            format!("{}.max_frags_battle", prefix),
+            self.max_frags_battle as f64,
+        );
+        m.insert(format!("{}.frags", prefix), self.frags as f64);
+        m.insert(format!("{}.hits", prefix), self.hits as f64);
+        m.insert(format!("{}.shots", prefix), self.shots as f64);
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DetailedStats {
     pub max_xp: u32,
@@ -189,6 +202,85 @@ pub struct DetailedStats {
     pub max_suppressions_count: u32,
     pub team_dropped_capture_points: u32,
     pub battles_since_512: u32,
+}
+
+impl DetailedStats {
+    pub fn into_map(&self) -> HashMap<String, f64> {
+        let mut m = HashMap::new();
+        self.main_battery.into_map(&mut m, "main_battery");
+        self.second_battery.into_map(&mut m, "second_battery");
+        self.ramming.into_map(&mut m, "ramming");
+        self.torpedoes.into_map(&mut m, "torpedoes");
+        self.aircraft.into_map(&mut m, "aircraft");
+        m.insert("max_xp".to_owned(), self.max_xp as f64);
+        m.insert(
+            "damage_to_buildings".to_owned(),
+            self.damage_to_buildings as f64,
+        );
+        m.insert(
+            "suppressions_count".to_owned(),
+            self.suppressions_count as f64,
+        );
+        m.insert(
+            "max_damage_scouting".to_owned(),
+            self.max_damage_scouting as f64,
+        );
+        m.insert("art_agro".to_owned(), self.art_agro as f64);
+        m.insert("ships_spotted".to_owned(), self.ships_spotted as f64);
+        m.insert("xp".to_owned(), self.xp as f64);
+        m.insert("survived_battles".to_owned(), self.survived_battles as f64);
+        m.insert(
+            "dropped_capture_points".to_owned(),
+            self.dropped_capture_points as f64,
+        );
+        m.insert(
+            "max_damage_dealt_to_buildings".to_owned(),
+            self.max_damage_dealt_to_buildings as f64,
+        );
+        m.insert("torpedo_agro".to_owned(), self.torpedo_agro as f64);
+        m.insert("draws".to_owned(), self.draws as f64);
+        m.insert(
+            "battles_since_510".to_owned(),
+            self.battles_since_510 as f64,
+        );
+        m.insert("planes_killed".to_owned(), self.planes_killed as f64);
+        m.insert("battles".to_owned(), self.battles as f64);
+        m.insert(
+            "max_ships_spotted".to_owned(),
+            self.max_ships_spotted as f64,
+        );
+        m.insert(
+            "team_capture_points".to_owned(),
+            self.team_capture_points as f64,
+        );
+        m.insert("frags".to_owned(), self.frags as f64);
+        m.insert("damage_scouting".to_owned(), self.damage_scouting as f64);
+        m.insert("max_total_agro".to_owned(), self.max_total_agro as f64);
+        m.insert("max_frags_battle".to_owned(), self.max_frags_battle as f64);
+        m.insert("capture_points".to_owned(), self.capture_points as f64);
+        m.insert("survived_wins".to_owned(), self.survived_wins as f64);
+        m.insert("max_damage_dealt".to_owned(), self.max_damage_dealt as f64);
+        m.insert("wins".to_owned(), self.wins as f64);
+        m.insert("losses".to_owned(), self.losses as f64);
+        m.insert("damage_dealt".to_owned(), self.damage_dealt as f64);
+        m.insert(
+            "max_planes_killed".to_owned(),
+            self.max_planes_killed as f64,
+        );
+        m.insert(
+            "max_suppressions_count".to_owned(),
+            self.max_suppressions_count as f64,
+        );
+        m.insert(
+            "team_dropped_capture_points".to_owned(),
+            self.team_dropped_capture_points as f64,
+        );
+        m.insert(
+            "battles_since_512".to_owned(),
+            self.battles_since_512 as f64,
+        );
+        m
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
