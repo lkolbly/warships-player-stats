@@ -94,12 +94,11 @@ fn cheatsheet(tier: u16, database: State<CheatsheetDb>) -> rocket::response::con
 }
 */
 
-#[get("/player/<username>")]
-async fn player_stats(
+async fn build_playerstats_context(
     username: &str,
-    database: &State<mongodb::Database>,
-    histograms: &State<Arc<Mutex<StatsHistogram>>>,
-) -> String {
+    database: &mongodb::Database,
+    histograms: &Arc<Mutex<StatsHistogram>>,
+) -> HashMap<String, tera::Value> {
     // Get the player's ID
     let username = username.to_lowercase();
     let collection = database.collection::<PlayerRecord>("playerids");
@@ -131,7 +130,7 @@ async fn player_stats(
         username, record.account_id
     ));
 
-    //for ship_stats in player.iter() {
+    let mut ships: Vec<tera::Value> = vec![];
     while let Some(ship_stats) = cursor.try_next().await.unwrap() {
         let ship_id = ship_stats.ship_id;
 
@@ -139,6 +138,22 @@ async fn player_stats(
         let percentiles = histograms.get_percentiles(ship_id, &ship_stats.pvp);
 
         result.push_str(&format!("{:?}\n", percentiles));
+
+        let mut ship: tera::Map<String, tera::Value> = tera::Map::new();
+        let percentiles: tera::Map<String, tera::Value> = percentiles
+            .iter()
+            .map(|(k, v)| (k.to_owned(), (*v).into()))
+            .collect();
+        ship.insert("percentiles".to_owned(), percentiles.into());
+        let ship_stats: tera::Map<String, tera::Value> = ship_stats
+            .pvp
+            .into_map()
+            .iter()
+            .map(|(k, v)| (k.to_owned(), (*v).into()))
+            .collect();
+        ship.insert("stats".to_owned(), ship_stats.into());
+
+        ships.push(ship.into());
 
         /*let (ship, stats) = match database.get_ship_stats(ship_id) {
             Some(a) => a,
@@ -186,7 +201,43 @@ async fn player_stats(
             ship_stats.xp, percentiles.xp
         ));*/
     }
-    result
+
+    let mut context = HashMap::new();
+    context.insert("ships".to_owned(), ships.into());
+    context
+}
+
+#[get("/player-raw/<username>")]
+async fn player_stats_raw(
+    username: &str,
+    database: &State<mongodb::Database>,
+    histograms: &State<Arc<Mutex<StatsHistogram>>>,
+) -> String {
+    let context = build_playerstats_context(username, database, histograms).await;
+
+    serde_json::to_string(&context).unwrap()
+}
+
+#[get("/player/<username>")]
+async fn player_stats(
+    username: &str,
+    database: &State<mongodb::Database>,
+    histograms: &State<Arc<Mutex<StatsHistogram>>>,
+) -> String {
+    let context = build_playerstats_context(username, database, histograms).await;
+
+    let mut tera = Tera::new("templates/*").unwrap();
+    tera.add_raw_template(
+        "playerstats.html",
+        std::include_str!("../templates/playerstats.html"),
+    )
+    .unwrap();
+
+    tera.render(
+        "playerstats.html",
+        &Context::from_serialize(&context).unwrap(),
+    )
+    .unwrap()
 }
 
 struct Config {
@@ -280,7 +331,7 @@ async fn main() -> Result<(), Error> {
     let cfg = Config::from_map(settings);
 
     let storage_client = mongodb::Client::with_options(
-        mongodb::options::ClientOptions::parse("mongodb://localhost:27017")
+        mongodb::options::ClientOptions::parse("mongodb://hydrazine:17310")
             .await
             .unwrap(),
     )
@@ -322,6 +373,7 @@ async fn main() -> Result<(), Error> {
     info!("Starting app");
     let client = crate::scraper::WowsClient::new(&cfg.api_key, cfg.request_period);
 
+    // Scrape the WoWS API, and keep the histograms updated
     {
         let db = db.clone();
         let histograms = histograms.clone();
@@ -330,13 +382,31 @@ async fn main() -> Result<(), Error> {
         });
     }
 
+    // Periodically (every hour) update the histograms with how big the database is
+    {
+        let db = db.clone();
+        let histograms = histograms.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(3600 * 1000)).await;
+
+                let collection = db.collection::<database::DetailedStatRecord>("playerstats");
+                let stats_count = collection.count_documents(None, None).await.unwrap();
+                info!("Database now contains {} entries", stats_count);
+                let mut histograms = histograms.lock().unwrap();
+                histograms.set_database_size(stats_count);
+            }
+        });
+    }
+
+    // Run the web
     let database = db.clone();
     rocket::build()
         .manage(database)
         .manage(histograms)
         .mount(
             "/warshipstats",
-            routes![index, player_stats /*, cheatsheet*/],
+            routes![index, player_stats, player_stats_raw /*, cheatsheet*/],
         )
         .launch()
         .await;

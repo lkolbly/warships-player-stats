@@ -1,0 +1,3 @@
+{%- for ship in ships %}
+Ship damage: {{ ship.stats["damage_dealt"] }} percentile {{ ship.percentiles["damage_dealt"] }}
+{% endfor %}
