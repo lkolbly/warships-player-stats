@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use tera::{Context, Tera};
 use tokio::fs::File;
-use tokio::prelude::*;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[macro_use]
 extern crate rocket;
@@ -231,6 +231,8 @@ async fn load_or_do<
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    console_subscriber::init();
+
     let mut settings = config::Config::default();
     settings
         .merge(config::File::with_name("settings"))
@@ -242,6 +244,8 @@ async fn main() -> Result<(), Error> {
     let cfg = Config::from_map(settings);
 
     let client = crate::scraper::WowsClient::new(&cfg.api_key, cfg.request_period);
+
+    database::poller(&client).await;
 
     // Generate cheatsheet
     let gameparams: GameParams = {

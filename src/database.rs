@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time;
 use std::time::Instant;
 use tokio::fs::File;
-use tokio::prelude::*;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::error::Error;
 use crate::progress_logger::ProgressLogger;
@@ -426,4 +426,80 @@ pub async fn fetch_player_list(client: &WowsClient) -> (HashMap<String, u64>, Ve
         player_lookup.insert(player.nickname.to_lowercase(), player.account_id);
     }
     (player_lookup, player_list)
+}
+
+pub async fn poller(client: &WowsClient, database: Arc<Mutex<Database>>) {
+    let (alphabet_sender, alphabet_receiver) = async_channel::bounded(256);
+
+    let x = tokio::spawn(async move {
+        let alphabet = [
+            'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q',
+            'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+        ];
+        loop {
+            for prefix in (0..3).map(|_| alphabet.iter()).multi_cartesian_product() {
+                let prefix: String = prefix.iter().map(|c| *c).collect();
+                alphabet_sender.send(prefix).await;
+            }
+        }
+    });
+
+    // Have some workers to get the players for each prefix
+    let (player_sender, player_receiver) = async_channel::bounded(1024);
+    for _ in 0..10 {
+        let client = client.fork();
+        let player_sender = player_sender.clone();
+        let alphabet_receiver = alphabet_receiver.clone();
+        tokio::spawn(async move {
+            while let Ok(prefix) = alphabet_receiver.recv().await {
+                match client.list_players(&prefix).await {
+                    Ok(players) => {
+                        {
+                            let mut database = database.lock().unwrap();
+                            for player in players.iter() {
+                                database
+                                    .player_list
+                                    .insert(player.nickname, player.account_id);
+                            }
+                        }
+
+                        player_sender.send(players).await;
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Got an error listing players for prefix {}: {:?}",
+                            prefix, e
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    // Have some workers to get detailed stats for the players
+    for _ in 0..10 {
+        let player_receiver = player_receiver.clone();
+        let client = client.fork();
+        tokio::spawn(async move {
+            while let Ok(players) = player_receiver.recv().await {
+                println!("Got {} players!", players.len());
+                for player in players.iter() {
+                    match client.get_detailed_stats(player.account_id).await {
+                        Ok(stats) => {
+                            println!("Got stats for player {}", player.nickname);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "Got an error retrieving detailed stats for player {}",
+                                player.account_id
+                            );
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Go forever
+    x.await;
 }
