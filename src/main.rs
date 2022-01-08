@@ -3,6 +3,7 @@
 use itertools::Itertools;
 use rocket::http::RawStr;
 use rocket::State;
+use rusoto_s3::S3;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -243,9 +244,31 @@ async fn main() -> Result<(), Error> {
     let settings: HashMap<String, String> = settings.try_into().unwrap();
     let cfg = Config::from_map(settings);
 
+    let storage_client = mongodb::Client::with_options(
+        mongodb::options::ClientOptions::parse("mongodb://localhost:27017")
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let db = storage_client.database("wows_player_stats");
+
+    let collection = db.collection::<database::DetailedStatRecord>("playerstats");
+    if collection.count_documents(None, None).await.unwrap() == 0 {
+        let mut index = bson::Document::new();
+        index.insert("account_id", 1u32);
+        collection.create_index(mongodb::IndexModel::builder().keys(index).build(), None);
+    }
+
+    let collection = db.collection::<PlayerRecord>("playerids");
+    if collection.count_documents(None, None).await.unwrap() == 0 {
+        let mut index = bson::Document::new();
+        index.insert("nickname", 1u32);
+        collection.create_index(mongodb::IndexModel::builder().keys(index).build(), None);
+    }
+
     let client = crate::scraper::WowsClient::new(&cfg.api_key, cfg.request_period);
 
-    database::poller(&client).await;
+    database::poller(&client, db).await;
 
     // Generate cheatsheet
     let gameparams: GameParams = {

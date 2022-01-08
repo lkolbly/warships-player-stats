@@ -3,6 +3,8 @@ use flate2::Compression;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamExt;
 use itertools::*;
+use rusoto_s3::S3;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::io::BufReader;
@@ -428,7 +430,16 @@ pub async fn fetch_player_list(client: &WowsClient) -> (HashMap<String, u64>, Ve
     (player_lookup, player_list)
 }
 
-pub async fn poller(client: &WowsClient, database: Arc<Mutex<Database>>) {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DetailedStatRecord {
+    pub pvp: DetailedStats,
+    pub account_id: u64,
+    pub ship_id: u64,
+    pub battles: u64,
+    pub retrieved: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn poller(client: &WowsClient, database: mongodb::Database) {
     let (alphabet_sender, alphabet_receiver) = async_channel::bounded(256);
 
     let x = tokio::spawn(async move {
@@ -450,18 +461,13 @@ pub async fn poller(client: &WowsClient, database: Arc<Mutex<Database>>) {
         let client = client.fork();
         let player_sender = player_sender.clone();
         let alphabet_receiver = alphabet_receiver.clone();
+        let database = database.clone();
         tokio::spawn(async move {
             while let Ok(prefix) = alphabet_receiver.recv().await {
                 match client.list_players(&prefix).await {
                     Ok(players) => {
-                        {
-                            let mut database = database.lock().unwrap();
-                            for player in players.iter() {
-                                database
-                                    .player_list
-                                    .insert(player.nickname, player.account_id);
-                            }
-                        }
+                        let collection = database.collection::<PlayerRecord>("playerids");
+                        collection.insert_many(players.clone(), None).await.unwrap();
 
                         player_sender.send(players).await;
                     }
@@ -480,6 +486,7 @@ pub async fn poller(client: &WowsClient, database: Arc<Mutex<Database>>) {
     for _ in 0..10 {
         let player_receiver = player_receiver.clone();
         let client = client.fork();
+        let database = database.clone();
         tokio::spawn(async move {
             while let Ok(players) = player_receiver.recv().await {
                 println!("Got {} players!", players.len());
@@ -487,6 +494,33 @@ pub async fn poller(client: &WowsClient, database: Arc<Mutex<Database>>) {
                     match client.get_detailed_stats(player.account_id).await {
                         Ok(stats) => {
                             println!("Got stats for player {}", player.nickname);
+
+                            match stats.iter().next() {
+                                Some((_player_id, stats)) => {
+                                    match stats {
+                                        Some(stats) => {
+                                            let stats: Vec<DetailedStatRecord> = stats
+                                                .iter()
+                                                .map(|stat| DetailedStatRecord {
+                                                    pvp: stat.pvp.clone(),
+                                                    account_id: stat.account_id,
+                                                    ship_id: stat.ship_id,
+                                                    battles: stat.battles,
+                                                    retrieved: chrono::Utc::now(),
+                                                })
+                                                .collect();
+
+                                            let collection = database
+                                                .collection::<DetailedStatRecord>("playerstats");
+                                            collection.insert_many(stats, None).await.unwrap();
+                                        }
+                                        None => {}
+                                    };
+                                }
+                                None => {
+                                    //
+                                }
+                            }
                         }
                         Err(e) => {
                             eprintln!(

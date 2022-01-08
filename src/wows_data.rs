@@ -202,7 +202,7 @@ pub struct DetailedStatTypes {
     pub ship_id: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PlayerRecord {
     pub nickname: String,
     pub account_id: u64,
