@@ -46,10 +46,12 @@ fn index() -> &'static str {
     "Hello there! Go ahead and go to the URL /warshipstats/player/<your username> to see your stats."
 }
 
-/*
 #[get("/cheatsheet/<tier>")]
-fn cheatsheet(tier: u16, database: State<CheatsheetDb>) -> rocket::response::content::Html<String> {
-    let mut tera = Tera::new("templates/ *").unwrap();
+fn render_cheatsheet(
+    tier: u16,
+    database: &State<CheatsheetDb>,
+) -> rocket::response::content::Html<String> {
+    let mut tera = Tera::new("templates/*").unwrap();
     tera.add_raw_template(
         "cheatsheet.html",
         std::include_str!("../templates/cheatsheet.html"),
@@ -77,12 +79,13 @@ fn cheatsheet(tier: u16, database: State<CheatsheetDb>) -> rocket::response::con
 
     //let mut result = String::new();
     let mut ships = vec![];
-    for (id, ship) in database.ships.iter() {
+    for id in database.enumerate_ships().iter() {
+        let ship = database.get_ship(*id).unwrap();
         if ship.min_tier <= tier && ship.max_tier >= tier {
             ships.push(ship);
         }
     }
-    ships.sort_by_key(|ship| (ship.class, &ship.name));
+    ships.sort_by_key(|ship| (ship.class, ship.name.clone()));
 
     let mut context = HashMap::new();
     context.insert("ships", &ships);
@@ -94,7 +97,6 @@ fn cheatsheet(tier: u16, database: State<CheatsheetDb>) -> rocket::response::con
         .unwrap(),
     )
 }
-*/
 
 async fn build_playerstats_context(
     username: &str,
@@ -140,7 +142,7 @@ async fn build_playerstats_context(
         let ship_id = ship_stats.ship_id;
 
         let data_age = chrono::Utc::now().signed_duration_since(ship_stats.retrieved);
-        context.insert("data_age".to_owned(), format!("{:?}", data_age).into());
+        context.insert("data_age".to_owned(), format!("{}", data_age).into());
 
         let mut ship: tera::Map<String, tera::Value> = tera::Map::new();
 
@@ -268,12 +270,17 @@ async fn player_stats(
 }
 
 struct Config {
+    disable_scraper: bool,
     api_key: String,
     request_period: u64,
 }
 
 impl Config {
     fn from_map(settings: HashMap<String, String>) -> Config {
+        let disable_scraper = match settings.get("disable_scraper") {
+            Some(x) => x.parse().unwrap(),
+            None => false,
+        };
         let api_key = settings
             .get("api_key")
             .expect("Could not find 'api_key' in settings")
@@ -285,6 +292,7 @@ impl Config {
             .expect("Could not parse api_request_rate as a float");
         let request_period: u64 = (1_000_000_000.0 / request_rate) as u64;
         Config {
+            disable_scraper,
             api_key,
             request_period,
         }
@@ -347,7 +355,8 @@ async fn load_or_do<
 async fn main() -> Result<(), Error> {
     let filter = tracing_subscriber::filter::Targets::new()
         .with_default(tracing::Level::WARN)
-        .with_target("wows_player_stats", tracing::Level::TRACE);
+        .with_target("wows_player_stats", tracing::Level::TRACE)
+        .with_target("wows_player_stats::histogram", tracing::Level::INFO);
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
@@ -399,10 +408,10 @@ async fn main() -> Result<(), Error> {
     // Prime the histograms with all the current statistics
     info!("Priming histogram with existing DB entries");
     let collection = db.collection::<database::DetailedStatRecord>("playerstats");
-    let mut cursor = collection.find(None, None).await.unwrap();
+    /*let mut cursor = collection.find(None, None).await.unwrap();
     while let Some(statrecord) = cursor.try_next().await.unwrap() {
         histograms.increment(statrecord.ship_id, &statrecord.pvp);
-    }
+    }*/
     info!("Finished priming histograms");
 
     histograms.set_database_size(stats_count);
@@ -422,8 +431,27 @@ async fn main() -> Result<(), Error> {
     info!("Starting app");
     let client = crate::scraper::WowsClient::new(&cfg.api_key, cfg.request_period);
 
+    // Load the cheatsheet
+    let gameparams: GameParams = {
+        //let data = std::include_bytes!("../GameParams.json");
+        //GameParams::load(&GAME_PARAMS)?
+        let mut data = vec![];
+        File::open("GameParams.json")
+            .await
+            .expect("Could not open required GameParams.json file")
+            .read_to_end(&mut data)
+            .await?;
+        GameParams::load(&data)?
+        //let mut data = std::include_bytes!("../GameParams.data");
+        //GameParams::load_raw(&data[..]).unwrap()
+    };
+    let cheatsheetdb = {
+        let ships = ships.clone();
+        CheatsheetDb::from(ships, gameparams)
+    };
+
     // Scrape the WoWS API, and keep the histograms updated
-    {
+    if !cfg.disable_scraper {
         let db = db.clone();
         let histograms = histograms.clone();
         let client = client.fork();
@@ -464,13 +492,15 @@ async fn main() -> Result<(), Error> {
         .manage(database)
         .manage(histograms)
         .manage(ships)
+        .manage(cheatsheetdb)
         .mount(
             "/warshipstats",
             routes![
                 index,
                 player_stats,
                 player_stats_raw,
-                ship_data /*, cheatsheet*/
+                ship_data,
+                render_cheatsheet
             ],
         )
         .launch()

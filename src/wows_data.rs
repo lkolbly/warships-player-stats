@@ -161,6 +161,10 @@ impl BatteryStats {
         m.insert(format!("{}.frags", prefix), self.frags as f64 / nbattles);
         m.insert(format!("{}.hits", prefix), self.hits as f64 / nbattles);
         m.insert(format!("{}.shots", prefix), self.shots as f64 / nbattles);
+        m.insert(
+            format!("{}.hitrate", prefix),
+            self.hits as f64 / self.shots as f64,
+        );
     }
 }
 

@@ -2,6 +2,8 @@ use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
+use crate::ships::ShipDb;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ShipClass {
     Destroyer,
@@ -94,9 +96,10 @@ impl Ship {
         }
         let mut torpedoes = None;
         for (_, module_info) in shipinfo.modules_tree.iter() {
-            let module = modules
-                .get(&module_info.module_id)
-                .expect("Couldn't find module specified in ship");
+            let module = modules.get(&module_info.module_id).expect(&format!(
+                "Couldn't find module {} specified in ship",
+                module_info.module_id
+            ));
             if let Some(torpedo_spec) = &module.profile.torpedoes {
                 torpedoes = Some(
                     torpedoes
@@ -131,29 +134,35 @@ impl Ship {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+//#[derive(Serialize, Deserialize)]
 pub struct CheatsheetDb {
-    pub ships: HashMap<u64, Ship>,
+    //pub ships: HashMap<u64, Ship>,
+    shipdb: ShipDb,
+    gameparams: crate::gameparams::GameParams,
 }
 
 impl CheatsheetDb {
-    pub fn from(
-        shipinfos: &HashMap<u64, crate::wows_data::ShipInfo>,
-        gameparams: &crate::gameparams::GameParams,
-        modules: &HashMap<u64, crate::wows_data::DetailedModuleInfo>,
-    ) -> Self {
-        let mut ships = HashMap::new();
+    pub fn from(shipdb: ShipDb, gameparams: crate::gameparams::GameParams) -> Self {
+        /*let mut ships = HashMap::new();
         for (id, ship) in shipinfos.iter() {
             let param = gameparams
                 .get_ship(*id)
                 .expect("Couldn't find ship gameparam");
             let ship: Ship = Ship::from(ship, param, modules);
             ships.insert(*id, ship);
-        }
-        CheatsheetDb { ships }
+        }*/
+        CheatsheetDb { shipdb, gameparams }
     }
 
-    pub fn get_ship(&self, id: u64) -> Option<&Ship> {
-        self.ships.get(&id)
+    pub fn enumerate_ships(&self) -> Vec<u64> {
+        self.shipdb.enumerate_ships()
+    }
+
+    pub fn get_ship(&self, id: u64) -> Option<Ship> {
+        //self.ships.get(&id)
+        let param = self.gameparams.get_ship(id).unwrap();
+        let shipinfo = self.shipdb.get_ship_info(id).unwrap();
+        let modules = self.shipdb.get_modules();
+        Some(Ship::from(&shipinfo, param, &modules))
     }
 }

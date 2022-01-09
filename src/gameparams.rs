@@ -242,7 +242,8 @@ impl GameParams {
     pub fn load(data: &[u8]) -> Result<Self> {
         let data = std::str::from_utf8(data).unwrap();
         let v: Value = serde_json::from_str(data)?;
-        let v = v.as_array().unwrap()[0].as_object().unwrap();
+        //let v = v.as_array().unwrap()[0].as_object().unwrap();
+        let v = v.as_object().unwrap();
         println!("There are {} elements", v.len());
         let mut type_counts: HashMap<String, usize> = HashMap::new();
         for (k, entry) in v.iter() {
