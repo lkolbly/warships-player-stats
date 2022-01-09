@@ -66,7 +66,7 @@ impl Histogram {
 /// elements in the database. Initially it's set to 100,000.
 pub struct RunningHistogram {
     histograms: Vec<Histogram>,
-    max_value: f64,
+    pub max_value: f64,
     database_size: u64,
     items_processed: u64,
 }
@@ -108,7 +108,7 @@ impl RunningHistogram {
         if self.histograms.len() == 0 {
             return Ok(0.0);
         }
-        self.histograms[0].percentile(percentile)
+        self.histograms[0].get_percentile(percentile)
     }
 
     pub fn update_db_size(&mut self, db_size: u64) {

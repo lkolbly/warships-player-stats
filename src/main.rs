@@ -29,6 +29,7 @@ mod gameparams;
 mod histogram;
 mod progress_logger;
 mod scraper;
+mod ships;
 mod statistics;
 mod wows_data;
 
@@ -368,7 +369,16 @@ async fn main() -> Result<(), Error> {
     while let Some(statrecord) = cursor.try_next().await.unwrap() {
         histograms.increment(statrecord.ship_id, &statrecord.pvp);
     }
+
+    for (k, v) in histograms.ships.iter() {
+        for (k2, v2) in v.iter() {
+            println!("{} {} {}", k, k2, v2.max_value);
+        }
+    }
+
     let histograms = Arc::new(Mutex::new(histograms));
+
+    //return Ok(());
 
     info!("Starting app");
     let client = crate::scraper::WowsClient::new(&cfg.api_key, cfg.request_period);

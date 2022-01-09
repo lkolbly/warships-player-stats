@@ -542,7 +542,9 @@ pub async fn poller(
                                                 )
                                                 .await
                                                 .unwrap();
-                                            collection.insert_many(stats, None).await.unwrap();
+                                            if stats.len() > 0 {
+                                                collection.insert_many(stats, None).await.unwrap();
+                                            }
                                         }
                                         None => {}
                                     };

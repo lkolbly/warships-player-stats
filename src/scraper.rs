@@ -4,6 +4,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use std::sync::Mutex;
 use stream_throttle::{ThrottlePool, ThrottleRate};
+use tokio::sync::Semaphore;
 
 use crate::error::Error;
 use crate::progress_logger::ProgressLogger;
@@ -14,6 +15,7 @@ pub struct WowsClient {
     client: reqwest::Client,
     throttle_pool: ThrottlePool,
     logger: Arc<Mutex<ProgressLogger>>,
+    inflight_requests: Arc<Semaphore>,
 }
 
 impl WowsClient {
@@ -27,6 +29,7 @@ impl WowsClient {
                 std::time::Duration::new(0, request_period.try_into().unwrap()),
             )),
             logger: Arc::new(Mutex::new(ProgressLogger::new("api_requests"))),
+            inflight_requests: Arc::new(Semaphore::new(30)),
         }
     }
 
@@ -36,6 +39,7 @@ impl WowsClient {
             client: self.client.clone(),
             throttle_pool: self.throttle_pool.clone(),
             logger: self.logger.clone(),
+            inflight_requests: self.inflight_requests.clone(),
         }
     }
 
@@ -51,6 +55,7 @@ impl WowsClient {
             .throttle_pool
             .queue()
             .then(|_| async {
+                let _permit = self.inflight_requests.acquire().await.unwrap();
                 self.client
                     .get(uri)
                     .form(&params)

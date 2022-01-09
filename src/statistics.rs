@@ -23,7 +23,7 @@ impl AveragedStats {
 }
 
 pub struct StatsHistogram {
-    ships: HashMap<u64, HashMap<String, RunningHistogram>>,
+    pub ships: HashMap<u64, HashMap<String, RunningHistogram>>,
     database_size: u64,
 }
 
