@@ -3753,6 +3753,8 @@ dependencies = [
  "tera",
  "thiserror",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

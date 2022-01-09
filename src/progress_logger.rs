@@ -1,4 +1,6 @@
 use std::time::Instant;
+#[macro_use]
+use tracing::*;
 
 pub struct ProgressLogger {
     tagline: String,
@@ -29,7 +31,7 @@ impl ProgressLogger {
         }
     }
 
-    pub fn increment(&mut self, count: usize) {
+    pub fn increment(&mut self, count: usize) -> bool {
         self.item_count += count;
         self.total += count;
         let elapsed = self.last_report_time.elapsed().as_secs_f64();
@@ -42,7 +44,7 @@ impl ProgressLogger {
                     } else {
                         target - self.total
                     };
-                    println!(
+                    debug!(
                         "{}: {}/{} items. {} in {:.2}s = {:.2} items/sec ETA {:.0}s",
                         self.tagline,
                         self.total,
@@ -54,7 +56,7 @@ impl ProgressLogger {
                     );
                 }
                 None => {
-                    println!(
+                    debug!(
                         "{}: {} items in {}s = {:.2} items/sec (total: {})",
                         self.tagline,
                         self.item_count,
@@ -66,6 +68,9 @@ impl ProgressLogger {
             }
             self.last_report_time = Instant::now();
             self.item_count = 0;
+            true
+        } else {
+            false
         }
     }
 }

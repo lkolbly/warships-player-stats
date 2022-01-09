@@ -1,3 +1,5 @@
+use tracing::*;
+
 #[derive(Clone)]
 pub struct Histogram {
     underlying: histogram::Histogram,
@@ -63,8 +65,9 @@ impl Histogram {
 ///
 /// The number of items between refreshes is total_items / N. total_items is, of course, not
 /// known in advance - therefore, it is periodically updated, according to the number of
-/// elements in the database. Initially it's set to 100,000.
+/// elements in the database.
 pub struct RunningHistogram {
+    label: String,
     histograms: Vec<Histogram>,
     pub max_value: f64,
     database_size: u64,
@@ -72,11 +75,12 @@ pub struct RunningHistogram {
 }
 
 impl RunningHistogram {
-    pub fn new() -> Self {
+    pub fn new(label: String, max_value: f64) -> Self {
         Self {
+            label,
             histograms: vec![],
-            max_value: 0.0,
-            database_size: 100_000,
+            max_value: max_value,
+            database_size: 1_000,
             items_processed: 0,
         }
     }
@@ -94,6 +98,11 @@ impl RunningHistogram {
             if self.histograms.len() > 10 {
                 self.histograms.remove(0);
             }
+            trace!(
+                "Refreshing histogram {} with max_value {}",
+                self.label,
+                self.max_value
+            );
             self.histograms.push(Histogram::new(self.max_value));
             self.items_processed = 0;
         }
@@ -112,7 +121,7 @@ impl RunningHistogram {
     }
 
     pub fn update_db_size(&mut self, db_size: u64) {
-        if db_size > 100_000 {
+        if db_size > 1_000 {
             self.database_size = db_size;
         }
     }

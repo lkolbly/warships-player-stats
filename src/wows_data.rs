@@ -274,11 +274,12 @@ impl DetailedStats {
             self.capture_points as f64 / nbattles,
         );
         m.insert(
-            "survived_wins".to_owned(),
+            "win_surviverate".to_owned(),
             self.survived_wins as f64 / self.wins as f64,
         );
         m.insert("max_damage_dealt".to_owned(), self.max_damage_dealt as f64);
-        m.insert("wins".to_owned(), self.wins as f64 / nbattles);
+        m.insert("wins".to_owned(), self.wins as f64);
+        m.insert("winrate".to_owned(), self.wins as f64 / nbattles);
         m.insert("losses".to_owned(), self.losses as f64 / nbattles);
         m.insert(
             "damage_dealt".to_owned(),

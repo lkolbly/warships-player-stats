@@ -6,9 +6,14 @@ use std::sync::Mutex;
 use stream_throttle::{ThrottlePool, ThrottleRate};
 use tokio::sync::Semaphore;
 
+#[macro_use]
+use tracing::*;
+
 use crate::error::Error;
 use crate::progress_logger::ProgressLogger;
 use crate::wows_data::*;
+
+const MAX_INFLIGHT_REQUESTS: usize = 30;
 
 pub struct WowsClient {
     application_id: String,
@@ -29,7 +34,7 @@ impl WowsClient {
                 std::time::Duration::new(0, request_period.try_into().unwrap()),
             )),
             logger: Arc::new(Mutex::new(ProgressLogger::new("api_requests"))),
-            inflight_requests: Arc::new(Semaphore::new(30)),
+            inflight_requests: Arc::new(Semaphore::new(MAX_INFLIGHT_REQUESTS)),
         }
     }
 
@@ -77,7 +82,12 @@ impl WowsClient {
             Ok(x) => {
                 {
                     let mut logger = self.logger.lock().unwrap();
-                    logger.increment(1);
+                    if logger.increment(1) {
+                        debug!(
+                            "Currently {} WoWS API requests in flight",
+                            MAX_INFLIGHT_REQUESTS - self.inflight_requests.available_permits()
+                        );
+                    }
                 }
                 Ok(x)
             }

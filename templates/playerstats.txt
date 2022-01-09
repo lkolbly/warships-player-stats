@@ -1,0 +1,7 @@
+Welcome, {{ username }}! Your data was retrieved {{ data_age }} ago.
+
+
+{%- for ship in ships %}
+Ship: Tier {{ ship.tier }} {{ ship.nation }} {{ ship.ship_type }} {{ ship.name }} ({{ ship.num_battles }} battles played) (ID={{ ship.shipid }})
+- Damage dealt: {{ ship.stats["damage_dealt"] }} percentile {{ ship.percentiles["damage_dealt"] }}
+{% endfor %}

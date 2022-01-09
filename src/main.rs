@@ -3,7 +3,7 @@
 use futures::TryStreamExt;
 use itertools::Itertools;
 #[macro_use]
-use log::*;
+use tracing::*;
 use mongodb::bson::doc;
 use rocket::http::RawStr;
 use rocket::State;
@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use tera::{Context, Tera};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tracing_subscriber::prelude::*;
 
 //#[macro_use]
 //extern crate rocket;
@@ -99,6 +100,7 @@ async fn build_playerstats_context(
     username: &str,
     database: &mongodb::Database,
     histograms: &Arc<Mutex<StatsHistogram>>,
+    shipdb: &crate::ships::ShipDb,
 ) -> HashMap<String, tera::Value> {
     // Get the player's ID
     let username = username.to_lowercase();
@@ -131,16 +133,32 @@ async fn build_playerstats_context(
         username, record.account_id
     ));
 
+    let mut context: HashMap<String, tera::Value> = HashMap::new();
+
     let mut ships: Vec<tera::Value> = vec![];
     while let Some(ship_stats) = cursor.try_next().await.unwrap() {
         let ship_id = ship_stats.ship_id;
+
+        let data_age = chrono::Utc::now().signed_duration_since(ship_stats.retrieved);
+        context.insert("data_age".to_owned(), format!("{:?}", data_age).into());
+
+        let mut ship: tera::Map<String, tera::Value> = tera::Map::new();
+
+        if let Some(ship_info) = shipdb.get_ship_info(ship_id) {
+            ship.insert("tier".to_owned(), ship_info.tier.into());
+            ship.insert("nation".to_owned(), ship_info.nation.into());
+            ship.insert("ship_type".to_owned(), ship_info.ship_type.into());
+            ship.insert("name".to_owned(), ship_info.name.into());
+        }
+
+        ship.insert("num_battles".to_owned(), ship_stats.battles.into());
+        ship.insert("shipid".to_owned(), ship_id.into());
 
         let histograms = histograms.lock().unwrap();
         let percentiles = histograms.get_percentiles(ship_id, &ship_stats.pvp);
 
         result.push_str(&format!("{:?}\n", percentiles));
 
-        let mut ship: tera::Map<String, tera::Value> = tera::Map::new();
         let percentiles: tera::Map<String, tera::Value> = percentiles
             .iter()
             .map(|(k, v)| (k.to_owned(), (*v).into()))
@@ -203,9 +221,15 @@ async fn build_playerstats_context(
         ));*/
     }
 
-    let mut context = HashMap::new();
     context.insert("ships".to_owned(), ships.into());
+    context.insert("username".to_owned(), username.into());
     context
+}
+
+#[get("/ships")]
+async fn ship_data(shipdb: &State<crate::ships::ShipDb>) -> String {
+    let ships = shipdb.get_all_info();
+    serde_json::to_string(&ships).unwrap()
 }
 
 #[get("/player-raw/<username>")]
@@ -213,8 +237,9 @@ async fn player_stats_raw(
     username: &str,
     database: &State<mongodb::Database>,
     histograms: &State<Arc<Mutex<StatsHistogram>>>,
+    ships: &State<crate::ships::ShipDb>,
 ) -> String {
-    let context = build_playerstats_context(username, database, histograms).await;
+    let context = build_playerstats_context(username, database, histograms, ships).await;
 
     serde_json::to_string(&context).unwrap()
 }
@@ -224,18 +249,19 @@ async fn player_stats(
     username: &str,
     database: &State<mongodb::Database>,
     histograms: &State<Arc<Mutex<StatsHistogram>>>,
+    ships: &State<crate::ships::ShipDb>,
 ) -> String {
-    let context = build_playerstats_context(username, database, histograms).await;
+    let context = build_playerstats_context(username, database, histograms, ships).await;
 
     let mut tera = Tera::new("templates/*").unwrap();
     tera.add_raw_template(
-        "playerstats.html",
-        std::include_str!("../templates/playerstats.html"),
+        "playerstats.txt",
+        std::include_str!("../templates/playerstats.txt"),
     )
     .unwrap();
 
     tera.render(
-        "playerstats.html",
+        "playerstats.txt",
         &Context::from_serialize(&context).unwrap(),
     )
     .unwrap()
@@ -319,7 +345,16 @@ async fn load_or_do<
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    console_subscriber::init();
+    let filter = tracing_subscriber::filter::Targets::new()
+        .with_default(tracing::Level::WARN)
+        .with_target("wows_player_stats", tracing::Level::TRACE);
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(filter)
+        .init();
+
+    //console_subscriber::init();
 
     let mut settings = config::Config::default();
     settings
@@ -360,7 +395,6 @@ async fn main() -> Result<(), Error> {
     }
 
     let mut histograms = StatsHistogram::new();
-    histograms.set_database_size(stats_count);
 
     // Prime the histograms with all the current statistics
     info!("Priming histogram with existing DB entries");
@@ -369,14 +403,19 @@ async fn main() -> Result<(), Error> {
     while let Some(statrecord) = cursor.try_next().await.unwrap() {
         histograms.increment(statrecord.ship_id, &statrecord.pvp);
     }
+    info!("Finished priming histograms");
 
-    for (k, v) in histograms.ships.iter() {
+    histograms.set_database_size(stats_count);
+
+    /*for (k, v) in histograms.ships.iter() {
         for (k2, v2) in v.iter() {
             println!("{} {} {}", k, k2, v2.max_value);
         }
-    }
+    }*/
 
     let histograms = Arc::new(Mutex::new(histograms));
+
+    let ships = crate::ships::ShipDb::new();
 
     //return Ok(());
 
@@ -387,6 +426,7 @@ async fn main() -> Result<(), Error> {
     {
         let db = db.clone();
         let histograms = histograms.clone();
+        let client = client.fork();
         tokio::spawn(async move {
             database::poller(&client, db, histograms).await;
         });
@@ -409,14 +449,29 @@ async fn main() -> Result<(), Error> {
         });
     }
 
+    // Keep the ships database up-to-date
+    {
+        let ships = ships.clone();
+        let client = client.fork();
+        tokio::spawn(async move {
+            ships.update_loop(client).await;
+        });
+    }
+
     // Run the web
     let database = db.clone();
     rocket::build()
         .manage(database)
         .manage(histograms)
+        .manage(ships)
         .mount(
             "/warshipstats",
-            routes![index, player_stats, player_stats_raw /*, cheatsheet*/],
+            routes![
+                index,
+                player_stats,
+                player_stats_raw,
+                ship_data /*, cheatsheet*/
+            ],
         )
         .launch()
         .await;

@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::time::{sleep, Duration};
 
+#[macro_use]
+use tracing::*;
+
 use crate::scraper::WowsClient;
 use crate::wows_data::ShipInfo;
 
@@ -21,12 +24,18 @@ impl ShipDb {
         ships.get(&shipid).map(|x| (*x).clone())
     }
 
+    pub fn get_all_info(&self) -> HashMap<u64, ShipInfo> {
+        let ships = self.ships.lock().unwrap();
+        ships.clone()
+    }
+
     pub async fn update_loop(self, client: WowsClient) {
         loop {
             match client.enumerate_ships().await {
                 Ok(data) => {
+                    info!("Loaded ship database, contains {} ships", data.len());
                     let mut ships = self.ships.lock().unwrap();
-                    ships = data;
+                    *ships = data;
                 }
                 Err(e) => {
                     eprintln!("Got error! {:?}", e);

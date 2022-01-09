@@ -16,6 +16,9 @@ use std::time::Instant;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[macro_use]
+use tracing::*;
+
 use crate::error::Error;
 use crate::progress_logger::ProgressLogger;
 use crate::scraper::WowsClient;
@@ -453,9 +456,13 @@ pub async fn poller(
             'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
         ];
         loop {
+            let mut cnt = 0;
             for prefix in (0..3).map(|_| alphabet.iter()).multi_cartesian_product() {
                 let prefix: String = prefix.iter().map(|c| *c).collect();
-                alphabet_sender.send(prefix).await;
+                if cnt > 1742 {
+                    alphabet_sender.send(prefix).await;
+                }
+                cnt += 1;
             }
         }
     });
@@ -479,10 +486,14 @@ pub async fn poller(
                             })
                             .collect();
 
-                        let collection = database.collection::<PlayerRecord>("playerids");
-                        collection.insert_many(players.clone(), None).await.unwrap();
+                        if players.len() > 0 {
+                            let collection = database.collection::<PlayerRecord>("playerids");
+                            collection.insert_many(players.clone(), None).await.unwrap();
 
-                        player_sender.send(players).await;
+                            player_sender.send(players).await;
+                        } else {
+                            debug!("No players for prefix {}", prefix);
+                        }
                     }
                     Err(e) => {
                         eprintln!(
@@ -503,11 +514,11 @@ pub async fn poller(
         let histograms = histograms.clone();
         tokio::spawn(async move {
             while let Ok(players) = player_receiver.recv().await {
-                println!("Got {} players!", players.len());
+                //println!("Got {} players!", players.len());
                 for player in players.iter() {
                     match client.get_detailed_stats(player.account_id).await {
                         Ok(stats) => {
-                            println!("Got stats for player {}", player.nickname);
+                            //println!("Got stats for player {}", player.nickname);
 
                             match stats.iter().next() {
                                 Some((_player_id, stats)) => {
