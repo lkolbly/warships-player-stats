@@ -134,23 +134,13 @@ impl Ship {
     }
 }
 
-//#[derive(Serialize, Deserialize)]
 pub struct CheatsheetDb {
-    //pub ships: HashMap<u64, Ship>,
     shipdb: ShipDb,
     gameparams: crate::gameparams::GameParams,
 }
 
 impl CheatsheetDb {
     pub fn from(shipdb: ShipDb, gameparams: crate::gameparams::GameParams) -> Self {
-        /*let mut ships = HashMap::new();
-        for (id, ship) in shipinfos.iter() {
-            let param = gameparams
-                .get_ship(*id)
-                .expect("Couldn't find ship gameparam");
-            let ship: Ship = Ship::from(ship, param, modules);
-            ships.insert(*id, ship);
-        }*/
         CheatsheetDb { shipdb, gameparams }
     }
 
@@ -159,7 +149,6 @@ impl CheatsheetDb {
     }
 
     pub fn get_ship(&self, id: u64) -> Option<Ship> {
-        //self.ships.get(&id)
         let param = self.gameparams.get_ship(id).unwrap();
         let shipinfo = self.shipdb.get_ship_info(id).unwrap();
         let modules = self.shipdb.get_modules();

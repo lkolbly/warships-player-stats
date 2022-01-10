@@ -33,20 +33,10 @@ pub enum Error {
         #[from]
         err: serde_json::Error,
     },
-    #[error("Error parsing bincoded data")]
-    Bincode {
-        #[from]
-        err: bincode::Error,
-    },
     #[error("Error performing file IO")]
     Io {
         #[from]
         err: std::io::Error,
-    },
-    #[error("Error performing sled operation")]
-    Sled {
-        #[from]
-        err: sled::Error,
     },
     #[error("Cache entry not found in sled DB")]
     CacheEntryNotFound,

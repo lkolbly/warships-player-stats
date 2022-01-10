@@ -1,5 +1,4 @@
 use std::time::Instant;
-#[macro_use]
 use tracing::*;
 
 pub struct ProgressLogger {

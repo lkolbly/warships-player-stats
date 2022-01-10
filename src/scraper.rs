@@ -5,8 +5,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use stream_throttle::{ThrottlePool, ThrottleRate};
 use tokio::sync::Semaphore;
-
-#[macro_use]
 use tracing::*;
 
 use crate::error::Error;

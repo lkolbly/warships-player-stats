@@ -2,8 +2,6 @@ use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tokio::time::{sleep, Duration};
-
-#[macro_use]
 use tracing::*;
 
 use crate::scraper::WowsClient;

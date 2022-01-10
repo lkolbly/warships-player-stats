@@ -1,6 +1,5 @@
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::convert::TryInto;
 
 #[derive(Debug, Deserialize)]
 pub struct GenericReplyMeta {
@@ -33,28 +32,6 @@ pub struct MobilityProfile {
     pub turning_radius: f32,
     pub max_speed: f32,
 }
-
-/*
-                "torpedoes": {
-                    "visibility_dist": 1.3,
-                    "distance": 8.0,
-                    "torpedoes_id": 3763744720,
-                    "torpedo_name": "533 mm Mk\u00a0IX",
-                    "reload_time": 96,
-                    "torpedo_speed": 61,
-                    "rotation_time": 7.2,
-                    "torpedoes_id_str": "PBUT506",
-                    "slots": {
-                        "0": {
-                            "barrels": 4,
-                            "caliber": 533,
-                            "name": "533 mm QR Mk\u00a0IV",
-                            "guns": 2
-                        }
-                    },
-                    "max_damage": 15433
-                },
-*/
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TorpedoesProfile {
