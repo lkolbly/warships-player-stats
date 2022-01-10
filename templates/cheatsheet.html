@@ -40,6 +40,20 @@
         </tr>
         {% endfor %}
     </table>
+
+    <script>
+        window.addEventListener("keypress", function (ev) {
+            if (ev.charCode == 97) { // a
+                window.location.href = "{{tier-1}}";
+            } else if (ev.charCode == 100) { // d
+                window.location.href = "{{tier+1}}";
+            } else if (ev.charCode == 115) { // s
+                window.scrollBy(0, 50);
+            } else if (ev.charCode == 119) { // w
+                window.scrollBy(0, -50);
+            }
+        });
+    </script>
 </body>
 
 </html>

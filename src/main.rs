@@ -86,9 +86,14 @@ fn render_cheatsheet(
         }
     }
     ships.sort_by_key(|ship| (ship.class, ship.name.clone()));
+    let ships: Vec<tera::Value> = ships
+        .iter()
+        .map(|x| serde_json::value::to_value(x).unwrap())
+        .collect();
 
-    let mut context = HashMap::new();
-    context.insert("ships", &ships);
+    let mut context: HashMap<&'static str, tera::Value> = HashMap::new();
+    context.insert("tier", tier.into());
+    context.insert("ships", ships.into());
     rocket::response::content::Html(
         tera.render(
             "cheatsheet.html",
