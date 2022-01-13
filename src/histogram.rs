@@ -5,7 +5,6 @@ pub struct Histogram {
     underlying: histogram::Histogram,
     bucket_size: f64,
     num_buckets: u64,
-    max: f64,
 }
 
 impl Histogram {
@@ -22,7 +21,6 @@ impl Histogram {
                 )),
             bucket_size: bucket_size,
             num_buckets: num_buckets,
-            max: max,
         }
     }
 
@@ -109,7 +107,12 @@ impl RunningHistogram {
 
         for histogram in self.histograms.iter_mut() {
             // TODO: Make the underlying accept f64
-            histogram.increment(value as f32);
+            if let Err(e) = histogram.increment(value as f32) {
+                error!(
+                    "Error {:?} incrementing histogram {} with {}",
+                    e, self.label, value
+                );
+            }
         }
     }
 

@@ -82,7 +82,10 @@ impl StatsHistogram {
 
     pub fn get_percentiles(&self, shipid: u64, stats: &DetailedStats) -> HashMap<String, f64> {
         let stats = stats.into_map();
-        let entry = self.ships.get(&shipid).unwrap();
+        let entry = match self.ships.get(&shipid) {
+            Some(x) => x,
+            None => return HashMap::new(),
+        };
         let mut result = HashMap::new();
         for (k, v) in stats.iter() {
             let histogram = entry.get(k).unwrap();

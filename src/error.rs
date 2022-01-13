@@ -1,4 +1,5 @@
 use thiserror::Error;
+use tracing::*;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -38,11 +39,31 @@ pub enum Error {
         #[from]
         err: std::io::Error,
     },
-    #[error("Cache entry not found in sled DB")]
-    CacheEntryNotFound,
     #[error("Could not convert UTF8 string")]
     Utf8Error {
         #[from]
         err: std::str::Utf8Error,
     },
+}
+
+pub trait DroppableError {
+    type OkValue;
+    type ErrValue;
+
+    fn log_and_drop_error<F: FnOnce(Self::ErrValue)>(self, cb: F) -> Option<Self::OkValue>;
+}
+
+impl<T, E> DroppableError for core::result::Result<T, E> {
+    type OkValue = T;
+    type ErrValue = E;
+
+    fn log_and_drop_error<F: FnOnce(Self::ErrValue)>(self, cb: F) -> Option<T> {
+        match self {
+            Ok(x) => Some(x),
+            Err(e) => {
+                cb(e);
+                None
+            }
+        }
+    }
 }

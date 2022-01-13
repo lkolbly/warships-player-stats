@@ -10,6 +10,7 @@ pub enum ShipClass {
     Cruiser,
     Battleship,
     AircraftCarrier,
+    Submarine,
 }
 
 impl ShipClass {
@@ -19,6 +20,7 @@ impl ShipClass {
             Self::Cruiser => "CR",
             Self::Battleship => "BB",
             Self::AircraftCarrier => "CV",
+            Self::Submarine => "SS",
         }
     }
 }
@@ -54,6 +56,8 @@ impl std::convert::From<String> for ShipClass {
             Self::Battleship
         } else if s == "AirCarrier" {
             Self::AircraftCarrier
+        } else if s == "Submarine" {
+            Self::Submarine
         } else {
             panic!("Unknown ship type {}", s);
         }
@@ -84,7 +88,7 @@ impl Ship {
     ) -> Self {
         let mut hydro = None;
         let mut radar = None;
-        for (slotid, slot) in params.ability_slots.iter().enumerate() {
+        for (_slotid, slot) in params.ability_slots.iter().enumerate() {
             for ability in slot.options.iter() {
                 //println!("{} type is {}", slotid, ability.consumable_type);
                 if ability.consumable_type == "sonar" {

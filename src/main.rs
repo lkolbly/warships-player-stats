@@ -101,7 +101,18 @@ async fn build_playerstats_context(
     let username = username.to_lowercase();
     let collection = database.collection::<PlayerRecord>("playerids");
     let filter = doc! { "nickname": username.clone() };
-    let record = collection.find_one(filter, None).await.unwrap().unwrap();
+    let record = match collection.find_one(filter, None).await.unwrap() {
+        Some(x) => x,
+        None => {
+            error!("Could not find username '{}'", username);
+            let mut context: HashMap<String, tera::Value> = HashMap::new();
+            context.insert(
+                "error".to_owned(),
+                format!("Could not find username '{}'", username).into(),
+            );
+            return context;
+        }
+    };
 
     // Get the player's stats
     let collection = database.collection::<DetailedStatRecord>("playerstats");
@@ -109,6 +120,7 @@ async fn build_playerstats_context(
     let mut cursor = collection.find(filter, None).await.unwrap();
 
     let mut context: HashMap<String, tera::Value> = HashMap::new();
+    context.insert("error".to_owned(), (false).into());
 
     let mut ships: Vec<tera::Value> = vec![];
     while let Some(ship_stats) = cursor.try_next().await.unwrap() {
@@ -116,16 +128,21 @@ async fn build_playerstats_context(
 
         // How old the data is
         let data_age = chrono::Utc::now().signed_duration_since(ship_stats.retrieved);
+        let age_formatter = timeago::Formatter::new();
+        let data_age = age_formatter.convert(data_age.to_std().unwrap());
         context.insert("data_age".to_owned(), format!("{}", data_age).into());
 
         // Collect some meta information about the ship itself
         let mut ship: tera::Map<String, tera::Value> = tera::Map::new();
 
         if let Some(ship_info) = shipdb.get_ship_info(ship_id) {
+            ship.insert("known".to_owned(), (true).into());
             ship.insert("tier".to_owned(), ship_info.tier.into());
             ship.insert("nation".to_owned(), ship_info.nation.into());
             ship.insert("ship_type".to_owned(), ship_info.ship_type.into());
             ship.insert("name".to_owned(), ship_info.name.into());
+        } else {
+            ship.insert("known".to_owned(), (false).into());
         }
 
         ship.insert("num_battles".to_owned(), ship_stats.battles.into());
@@ -186,9 +203,29 @@ async fn player_stats(
     let mut tera = Tera::new("templates/*").unwrap();
     tera.add_raw_template(
         "playerstats.txt",
-        std::include_str!("../templates/playerstats.txt"),
+        &std::fs::read_to_string("./templates/playerstats.txt")
+            .unwrap_or(std::include_str!("../templates/playerstats.txt").to_string()),
     )
     .unwrap();
+
+    tera.register_tester("none", |value: Option<&tera::Value>, _: &[tera::Value]| {
+        Ok(value.unwrap().is_null())
+    });
+    tera.register_filter(
+        "unwrap_float",
+        |value: &tera::Value, _: &HashMap<String, tera::Value>| {
+            let value: Option<f32> = serde_json::value::from_value(value.clone()).unwrap();
+            let value = value.unwrap_or(0.0);
+            Ok(serde_json::value::to_value(value).unwrap())
+        },
+    );
+    tera.register_filter(
+        "mult100",
+        |value: &tera::Value, _: &HashMap<String, tera::Value>| {
+            let value: f32 = serde_json::value::from_value(value.clone()).unwrap();
+            Ok(serde_json::value::to_value(value * 100.0).unwrap())
+        },
+    );
 
     tera.render(
         "playerstats.txt",
@@ -201,6 +238,7 @@ struct Config {
     disable_scraper: bool,
     api_key: String,
     request_period: u64,
+    mongo_url: String,
 }
 
 impl Config {
@@ -218,11 +256,16 @@ impl Config {
             .expect("Could not find 'api_request_rate' in settings")
             .parse()
             .expect("Could not parse api_request_rate as a float");
+        let mongo_url = settings
+            .get("mongo")
+            .expect("Could not find 'mongo' in settings")
+            .to_string();
         let request_period: u64 = (1_000_000_000.0 / request_rate) as u64;
         Config {
             disable_scraper,
             api_key,
             request_period,
+            mongo_url,
         }
     }
 }
@@ -269,45 +312,56 @@ async fn main() -> Result<(), Error> {
     let cfg = Config::from_map(settings);
 
     let storage_client = mongodb::Client::with_options(
-        mongodb::options::ClientOptions::parse("mongodb://hydrazine:17310")
+        mongodb::options::ClientOptions::parse(cfg.mongo_url)
             .await
             .unwrap(),
     )
     .unwrap();
     let db = storage_client.database("wows_player_stats");
 
+    info!("Connected to DB. Counting entries...");
     let collection = db.collection::<database::DetailedStatRecord>("playerstats");
-    let stats_count = collection.count_documents(None, None).await.unwrap();
+    let stats_count = collection.estimated_document_count(None).await.unwrap();
     info!("DB has {} player+ship entries already", stats_count);
     if stats_count == 0 {
         let index = doc! { "account_id": 1 };
         collection
             .create_index(mongodb::IndexModel::builder().keys(index).build(), None)
-            .await;
+            .await
+            .expect("Could not create index on playerstats collection");
     }
 
     let collection = db.collection::<PlayerRecord>("playerids");
-    if collection.count_documents(None, None).await.unwrap() == 0 {
+    if collection.estimated_document_count(None).await.unwrap() == 0 {
         let index = doc! { "nickname": 1 };
         collection
             .create_index(mongodb::IndexModel::builder().keys(index).build(), None)
-            .await;
+            .await
+            .expect("Could not create index on playerids collection");
     }
 
-    let mut histograms = StatsHistogram::new();
+    let histograms = Arc::new(Mutex::new(StatsHistogram::new()));
 
-    // Prime the histograms with all the current statistics
-    info!("Priming histogram with existing DB entries");
-    let collection = db.collection::<database::DetailedStatRecord>("playerstats");
-    let mut cursor = collection.find(None, None).await.unwrap();
-    while let Some(statrecord) = cursor.try_next().await.unwrap() {
-        histograms.increment(statrecord.ship_id, &statrecord.pvp);
+    {
+        let db = db.clone();
+        let histograms = histograms.clone();
+        tokio::spawn(async move {
+            // Prime the histograms with all the current statistics
+            info!("Priming histogram with existing DB entries");
+            let collection = db.collection::<database::DetailedStatRecord>("playerstats");
+            let mut cursor = collection.find(None, None).await.unwrap();
+            let mut pl = crate::progress_logger::ProgressLogger::new_with_target(
+                "histogram_prime",
+                stats_count as usize,
+            );
+            while let Some(statrecord) = cursor.try_next().await.unwrap() {
+                let mut histograms = histograms.lock().unwrap();
+                histograms.increment(statrecord.ship_id, &statrecord.pvp);
+                pl.increment(1);
+            }
+            info!("Finished priming histograms");
+        });
     }
-    info!("Finished priming histograms");
-
-    histograms.set_database_size(stats_count);
-
-    let histograms = Arc::new(Mutex::new(histograms));
 
     let ships = crate::ships::ShipDb::new();
 
@@ -383,7 +437,8 @@ async fn main() -> Result<(), Error> {
             ],
         )
         .launch()
-        .await;
+        .await
+        .expect("Issue running webserver");
 
     Ok(())
 }

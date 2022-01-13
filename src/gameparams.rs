@@ -57,7 +57,7 @@ impl ProcessedShip {
         let abilities: Vec<_> = match ship.abilities {
             Some(x) => x
                 .iter()
-                .map(|(k, v)| {
+                .map(|(_, v)| {
                     let options: Vec<_> = v
                         .abils
                         .iter()
@@ -101,7 +101,7 @@ impl GameParams {
         let v = v.as_object().unwrap();
         println!("There are {} elements", v.len());
         let mut type_counts: HashMap<String, usize> = HashMap::new();
-        for (k, entry) in v.iter() {
+        for (_, entry) in v.iter() {
             let typeinfo = entry
                 .as_object()
                 .unwrap()
@@ -145,7 +145,7 @@ impl GameParams {
 
         // Parse out the ships
         let mut ships = HashMap::new();
-        for (k, entry) in v.iter() {
+        for (_, entry) in v.iter() {
             let typeinfo = entry
                 .as_object()
                 .unwrap()

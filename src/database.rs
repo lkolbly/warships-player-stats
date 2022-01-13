@@ -4,6 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tracing::*;
 
+use crate::error::*;
 use crate::scraper::WowsClient;
 use crate::statistics::*;
 use crate::wows_data::*;
@@ -30,13 +31,11 @@ pub async fn poller(
             'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
         ];
         loop {
-            let mut cnt = 0;
             for prefix in (0..3).map(|_| alphabet.iter()).multi_cartesian_product() {
                 let prefix: String = prefix.iter().map(|c| *c).collect();
-                if cnt > 1742 {
-                    alphabet_sender.send(prefix).await;
-                }
-                cnt += 1;
+                alphabet_sender.send(prefix).await.log_and_drop_error(|e| {
+                    error!("Couldn't send prefix through pipe, error {:?}", e);
+                });
             }
         }
     });
@@ -50,31 +49,64 @@ pub async fn poller(
         let database = database.clone();
         tokio::spawn(async move {
             while let Ok(prefix) = alphabet_receiver.recv().await {
-                match client.list_players(&prefix).await {
-                    Ok(players) => {
-                        let players: Vec<PlayerRecord> = players
-                            .iter()
-                            .map(|player| PlayerRecord {
-                                nickname: player.nickname.to_lowercase(),
-                                account_id: player.account_id,
-                            })
-                            .collect();
-
-                        if players.len() > 0 {
-                            let collection = database.collection::<PlayerRecord>("playerids");
-                            collection.insert_many(players.clone(), None).await.unwrap();
-
-                            player_sender.send(players).await;
-                        } else {
-                            debug!("No players for prefix {}", prefix);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "Got an error listing players for prefix {}: {:?}",
+                let players = client.list_players(&prefix).await.map_or_else(
+                    |e| {
+                        error!(
+                            "Error listing players on WoWS API for prefix {}: {:?}",
                             prefix, e
                         );
+                        vec![]
+                    },
+                    |players| players,
+                );
+
+                // Lowercase the usernames
+                let players: Vec<PlayerRecord> = players
+                    .iter()
+                    .map(|player| PlayerRecord {
+                        nickname: player.nickname.to_lowercase(),
+                        account_id: player.account_id,
+                    })
+                    .collect();
+
+                // Send the players, if they exist
+                if players.len() > 0 {
+                    let collection = database.collection::<PlayerRecord>("playerids");
+                    for player in players.iter() {
+                        collection
+                            .delete_many(doc! { "nickname": player.nickname.clone() }, None)
+                            .await
+                            .log_and_drop_error(|e| {
+                                error!("Error deleting pre-existing player record, error: {:?}", e);
+                            });
                     }
+
+                    collection
+                        .insert_many(players.clone(), None)
+                        .await
+                        .log_and_drop_error(|e| {
+                            error!("Error adding player records to mongo: {:?}", e);
+                        });
+
+                    // TODO: Implement upserts to avoid race conditions & improve performance
+                    /*for player in players.iter() {
+                        collection
+                            .update_one(
+                                doc! { "nickname": player.nickname.clone() },
+                                mongodb::options::UpdateModifications::Document(doc! { "nickname": player.nickname.clone(), "account_id": player.account_id as i64 }),
+                                None,
+                            )
+                            .await
+                            .log_and_drop_error(|e| {
+                                error!("Error adding player record {:?} to mongo: {:?}", player, e);
+                            });
+                    }*/
+
+                    player_sender.send(players).await.log_and_drop_error(|e| {
+                        error!("Couldn't send player list, error: {:?}", e);
+                    });
+                } else {
+                    debug!("No players for prefix {}", prefix);
                 }
             }
         });
@@ -94,55 +126,60 @@ pub async fn poller(
                         Ok(stats) => {
                             //println!("Got stats for player {}", player.nickname);
 
-                            match stats.iter().next() {
-                                Some((_player_id, stats)) => {
-                                    match stats {
-                                        Some(stats) => {
-                                            let stats: Vec<DetailedStatRecord> = stats
-                                                .iter()
-                                                .map(|stat| DetailedStatRecord {
-                                                    pvp: stat.pvp.clone(),
-                                                    account_id: stat.account_id,
-                                                    ship_id: stat.ship_id,
-                                                    battles: stat.battles,
-                                                    retrieved: chrono::Utc::now(),
-                                                })
-                                                .collect();
+                            if let Some((_player_id, stats)) = stats.iter().next() {
+                                if let Some(stats) = stats {
+                                    let stats: Vec<DetailedStatRecord> = stats
+                                        .iter()
+                                        .map(|stat| DetailedStatRecord {
+                                            pvp: stat.pvp.clone(),
+                                            account_id: stat.account_id,
+                                            ship_id: stat.ship_id,
+                                            battles: stat.battles,
+                                            retrieved: chrono::Utc::now(),
+                                        })
+                                        .collect();
 
-                                            // Update the histograms
-                                            stats.iter().for_each(|stat| {
-                                                let mut histograms = histograms.lock().unwrap();
-                                                histograms.increment(stat.ship_id, &stat.pvp);
+                                    // Update the histograms
+                                    stats.iter().for_each(|stat| {
+                                        let mut histograms = histograms.lock().unwrap();
+                                        histograms.increment(stat.ship_id, &stat.pvp);
+                                    });
+
+                                    let collection =
+                                        database.collection::<DetailedStatRecord>("playerstats");
+
+                                    // TODO: This is a race condition, if a query for this account comes in between
+                                    // the delete and the insert. This should be an upsert.
+                                    collection
+                                        .delete_many(
+                                            doc! {"account_id": player.account_id as i64},
+                                            None,
+                                        )
+                                        .await
+                                        .log_and_drop_error(|e| {
+                                            error!(
+                                                "Couldn't delete statistics for account_id={}, error {:?}",
+                                                player.account_id, e
+                                            );
+                                        });
+                                    if stats.len() > 0 {
+                                        collection
+                                            .insert_many(stats, None)
+                                            .await
+                                            .log_and_drop_error(|e| {
+                                                error!(
+                                                    "Couldn't insert stats for account_id={}, error {:?}",
+                                                    player.account_id, e
+                                                );
                                             });
-
-                                            let collection = database
-                                                .collection::<DetailedStatRecord>("playerstats");
-
-                                            // TODO: This is a race condition, if a query for this account comes in between
-                                            // the delete and the insert
-                                            collection
-                                                .delete_many(
-                                                    doc! {"account_id": player.account_id as i64},
-                                                    None,
-                                                )
-                                                .await
-                                                .unwrap();
-                                            if stats.len() > 0 {
-                                                collection.insert_many(stats, None).await.unwrap();
-                                            }
-                                        }
-                                        None => {}
-                                    };
-                                }
-                                None => {
-                                    //
+                                    }
                                 }
                             }
                         }
                         Err(e) => {
-                            eprintln!(
-                                "Got an error retrieving detailed stats for player {}",
-                                player.account_id
+                            error!(
+                                "Got an error {:?} retrieving detailed stats for player {}",
+                                e, player.account_id
                             );
                         }
                     }
@@ -152,5 +189,5 @@ pub async fn poller(
     }
 
     // Go forever
-    x.await;
+    x.await.expect("Prefix generator should not have exited!");
 }

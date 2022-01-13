@@ -1,7 +1,19 @@
+{% if error %}
+Error: {{ error }}
+{% else -%}
 Welcome, {{ username }}! Your data was retrieved {{ data_age }} ago.
-
-
-{%- for ship in ships %}
+{% for ship in ships %}
+{% if ship.known -%}
 Ship: Tier {{ ship.tier }} {{ ship.nation }} {{ ship.ship_type }} {{ ship.name }} ({{ ship.num_battles }} battles played) (ID={{ ship.shipid }})
-- Damage dealt: {{ ship.stats["damage_dealt"] }} percentile {{ ship.percentiles["damage_dealt"] }}
-{% endfor %}
+- Damage dealt: {{ ship.stats | get(key="damage_dealt", default=0.0) | unwrap_float | round(precision=0) }} (better than {{ ship.percentiles | get(key="damage_dealt", default=0.0) | round(precision=1) }}% of players on this ship)
+- Kills: {{ ship.stats | get(key="frags", default=0.0) | unwrap_float | round(precision=2) }} (better than {{ ship.percentiles | get(key="frags", default=0.0) | round(precision=1) }}% of players on this ship)
+- Main battery hit rate: {{ ship.stats | get(key="main_battery.hitrate", default=0.0) | unwrap_float| mult100 | round(precision=0) }}% (better than {{ ship.percentiles | get(key="main_battery.hitrate", default=0.0) | round(precision=1) }}% of players on this ship)
+- Main battery shots: {{ ship.stats | get(key="main_battery.shots", default=0.0) | unwrap_float | round(precision=0) }} (better than {{ ship.percentiles | get(key="main_battery.shots", default=0.0) | round(precision=1) }}% of players on this ship)
+- Main battery hits: {{ ship.stats | get(key="main_battery.hits", default=0.0) | unwrap_float | round(precision=0) }} (better than {{ ship.percentiles | get(key="main_battery.hits", default=0.0) | round(precision=1) }}% of players on this ship)
+- Winrate: {{ ship.stats | get(key="winrate", default=0.0) | unwrap_float | mult100 | round(precision=2) }}% (better than {{ ship.percentiles | get(key="winrate", default=0.0) | round(precision=1) }}% of players on this ship)
+- XP: {{ ship.stats | get(key="xp", default=0.0) | unwrap_float | round(precision=0) }} (better than {{ ship.percentiles | get(key="xp", default=0.0) | round(precision=1) }}% of players on this ship)
+{% else -%}
+Unrecognized ship {{ ship.shipid }}!
+{% endif -%}
+{% endfor -%}
+{% endif %}

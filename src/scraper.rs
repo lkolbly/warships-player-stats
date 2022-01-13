@@ -202,14 +202,6 @@ impl WowsClient {
         Ok(result)
     }
 
-    pub async fn get_ship_info(&self, ship_id: u64) -> Result<ShipInfo, Error> {
-        let uri = "https://api.worldofwarships.com/wows/encyclopedia/ships/";
-        let s = format!("{}", ship_id);
-        let params = [("ship_id", s.as_str())];
-        let reply: GenericReply<ShipInfo> = self.request(uri, &params[..]).await?;
-        Ok(reply.data.expect("Expected data for get_ship_info"))
-    }
-
     pub async fn enumerate_ships(&self) -> Result<HashMap<u64, ShipInfo>, Error> {
         let uri = "https://api.worldofwarships.com/wows/encyclopedia/ships/";
         let mut result: HashMap<_, ShipInfo> = HashMap::new();
