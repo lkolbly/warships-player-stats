@@ -64,6 +64,9 @@ impl StatsHistogram {
     }
 
     pub fn increment(&mut self, shipid: u64, stats: &DetailedStats) {
+        // Prevent one-off ships from skewing the data
+        let qualifies = stats.battles > 10;
+
         let stats = stats.into_map();
         if !self.ships.contains_key(&shipid) {
             self.ships.insert(shipid, HashMap::new());
@@ -76,7 +79,9 @@ impl StatsHistogram {
                 h.update_db_size(self.database_size);
                 entry.insert(k.to_owned(), h);
             }
-            entry.get_mut(k).unwrap().increment(*v);
+            if qualifies {
+                entry.get_mut(k).unwrap().increment(*v);
+            }
         }
     }
 

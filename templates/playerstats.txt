@@ -1,7 +1,7 @@
 {% if error %}
 Error: {{ error }}
 {% else -%}
-Welcome, {{ username }}! Your data was retrieved {{ data_age }} ago.
+Welcome, {{ username }}! Your data was retrieved {{ data_age }}.
 {% for ship in ships %}
 {% if ship.known -%}
 Ship: Tier {{ ship.tier }} {{ ship.nation }} {{ ship.ship_type }} {{ ship.name }} ({{ ship.num_battles }} battles played) (ID={{ ship.shipid }})

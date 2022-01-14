@@ -291,6 +291,7 @@ mod tests {
 async fn main() -> Result<(), Error> {
     let filter = tracing_subscriber::filter::Targets::new()
         .with_default(tracing::Level::WARN)
+        .with_target("rocket", tracing::Level::DEBUG)
         .with_target("wows_player_stats", tracing::Level::TRACE)
         .with_target("wows_player_stats::histogram", tracing::Level::INFO);
 
@@ -369,16 +370,16 @@ async fn main() -> Result<(), Error> {
     let client = crate::scraper::WowsClient::new(&cfg.api_key, cfg.request_period);
 
     // Load the cheatsheet
-    let gameparams: GameParams = {
-        let mut data = vec![];
-        File::open("GameParams.json")
-            .await
-            .expect("Could not open required GameParams.json file")
-            .read_to_end(&mut data)
-            .await?;
-        GameParams::load(&data)?
-    };
     let cheatsheetdb = {
+        let gameparams: GameParams = {
+            let mut data = vec![];
+            File::open("GameParams.json")
+                .await
+                .expect("Could not open required GameParams.json file")
+                .read_to_end(&mut data)
+                .await?;
+            GameParams::load(&data)?
+        };
         let ships = ships.clone();
         CheatsheetDb::from(ships, gameparams)
     };
