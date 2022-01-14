@@ -146,7 +146,8 @@ impl WowsClient {
                 // Gotta go re-request for each sub-uri
                 let chars = vec![
                     'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p',
-                    'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '_',
+                    'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '_', '0', '1', '2', '3', '4',
+                    '5', '6', '7', '8', '9',
                 ];
                 for c in chars.iter() {
                     let mut search = searches[i].clone();
